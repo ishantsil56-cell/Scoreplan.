@@ -1,5 +1,5 @@
 /* ScorePlan service worker — cache-first app shell; works offline after first load. */
-var CACHE = 'scoreplan-v1.0';
+var CACHE = 'scoreplan-v2.0';
 var ASSETS = ['./', './index.html', './styles.css', './syllabus.js', './dates.js', './planner.js',
   './storage.js', './app.js', './manifest.webmanifest', './icons/icon-192.png', './icons/icon-512.png', './icons/maskable-512.png'];
 self.addEventListener('install', function (e) {

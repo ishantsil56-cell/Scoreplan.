@@ -16,6 +16,9 @@
 ## Tests
 `node test/planner.test.js` checks the §5.7 worked example and the §11 plan rules across 11 scenarios (1–120 days, 1–10 hrs/day).
 
+## Service worker cache (added 22 Nov 2026)
+18. **Bump `CACHE` in `sw.js` on every release.** The worker is cache-first and the browser only picks up a new worker when `sw.js` itself changes bytes. v2 shipped with the cache name still at `scoreplan-v1.0`, so phones that had visited v1 kept serving the old files and the new exam packs never appeared. Rule: every deploy that changes app files must also bump the cache name.
+
 ## Exam packs (JEE Main / JEE Advanced / NEET UG)
 13. One pack per exam in `syllabus.js` (same shape: subjects, chapters with weightage + difficulty). Chapter IDs are prefixed per pack (`adv-…`, `neet-…`) so nothing collides.
 14. **NEET UG subjects:** Physics, Chemistry, Botany, Zoology (4 subjects, each weighted equally as 180/720 marks). Weightage-covered % averages across all four.
