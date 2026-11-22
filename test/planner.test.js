@@ -1,7 +1,11 @@
-const D = require('../dates.js'), { SYLLABUS, subjectTotals } = require('../syllabus.js'), { generatePlan } = require('../planner.js');
+const D = require('../dates.js'), Data = require('../syllabus.js'), { SYLLABUS, subjectTotals } = Data, { generatePlan } = require('../planner.js');
 let fails = 0;
-const ok = (c, m) => { if (!c) { fails++; console.log('  FAIL:', m); } };
+var ok = (c, m) => { if (!c) { fails++; console.log('  FAIL:', m); } };
 const today = '2026-11-22';
+Data.ORDER.forEach(k => { const p = Data.getPack(k), tt = subjectTotals(p);
+  p.subjects.forEach(s => ok(tt[s] === 100, k + ' ' + s + ' sums to ' + tt[s]));
+  ok(new Set(p.chapters.map(c => c.id)).size === p.chapters.length, k + ' duplicate ids');
+  console.log(k, p.chapters.length, 'chapters', JSON.stringify(tt)); });
 console.log('subject totals', subjectTotals(), 'chapters', SYLLABUS.length);
 function base(days, mins, extra) {
   return Object.assign({ examName: 'x', examDate: D.add(today, days), dailyMinutes: mins, chapters: {}, lastStudied: {}, studiedOn: {}, pinned: {}, tasks: [] }, extra || {});
@@ -55,5 +59,11 @@ const t2 = generatePlan(s, SYLLABUS, day3);
 ok(JSON.stringify(t2.filter(x => x.date < day3)) === before, 'rebuild must keep past days untouched');
 const missed = s.tasks.filter(x => x.date < day3 && x.type === 'study' && !x.done).map(x => x.chapterId);
 console.log('\nrebuild: missed chapters re-queued:', missed.every(id => t2.some(x => x.date >= day3 && x.chapterId === id && x.type === 'study')));
-console.log(fails ? '\nFAILED ' + fails : '\nALL PLANNER CHECKS PASSED');
+
+// every pack plans cleanly
+Data.ORDER.forEach(k => { const p = Data.getPack(k); const s = base(75, 300, { examType: k }); const tt = generatePlan(s, p.chapters, today);
+  const bad = tt.filter(x => x.chapterId && !p.chapters.some(c => c.id === x.chapterId));
+  ok(bad.length === 0, k + ' tasks reference foreign chapters');
+  console.log(k, 'plan:', tt.length, 'tasks,', new Set(tt.filter(x => x.type === 'study').map(x => x.chapterId)).size, 'chapters studied'); });
+console.log(fails ? 'PACK CHECKS FAILED' : 'ALL PACK CHECKS PASSED');
 process.exit(fails ? 1 : 0);

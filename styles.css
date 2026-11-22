@@ -41,7 +41,7 @@ h1,h2,h3,p{margin:0}
 .bar>i{display:block;height:100%;background:var(--primary);border-radius:4px;transition:width .3s}
 .bar.g>i{background:var(--success)}
 .dot{width:8px;height:8px;border-radius:50%;flex:none;display:inline-block;background:var(--muted)}
-.dot.Physics{background:var(--phy)}.dot.Chemistry{background:var(--che)}.dot.Maths{background:var(--mat)}
+.dot.Physics{background:var(--phy)}.dot.Chemistry{background:var(--che)}.dot.Maths{background:var(--mat)}.dot.Botany{background:#65A30D}.dot.Zoology{background:#DB2777}
 /* tasks */
 .task{display:flex;align-items:center;gap:12px;padding:10px 0;border-top:1px solid var(--border);cursor:pointer;min-height:48px}
 .task:first-child{border-top:0}
@@ -66,7 +66,7 @@ input.chk:focus-visible,.btn:focus-visible,.icon-btn:focus-visible,select:focus-
 .nav button svg{width:24px;height:24px}.nav button.active{color:var(--primary);font-weight:600}
 .nav .only-desktop{display:none}
 /* segmented tabs / chips row */
-.tabs{display:flex;gap:6px}.tabs button{flex:1;min-width:0;border:1px solid var(--border);background:var(--surface);border-radius:12px;padding:8px 4px;cursor:pointer;font-weight:600;font-size:13px;min-height:44px}
+.tabs{display:flex;gap:6px}.tabs button{flex:1;min-width:0;overflow-wrap:anywhere;border:1px solid var(--border);background:var(--surface);border-radius:12px;padding:8px 4px;cursor:pointer;font-weight:600;font-size:13px;min-height:44px}
 .tabs button.active{background:var(--primary);border-color:var(--primary);color:#fff}
 .tabs small{display:block;font-weight:400;opacity:.85}
 .filters{display:flex;gap:6px;overflow-x:auto;padding-bottom:4px;-webkit-overflow-scrolling:touch}

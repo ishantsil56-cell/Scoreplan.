@@ -15,3 +15,10 @@
 
 ## Tests
 `node test/planner.test.js` checks the §5.7 worked example and the §11 plan rules across 11 scenarios (1–120 days, 1–10 hrs/day).
+
+## Exam packs (JEE Main / JEE Advanced / NEET UG)
+13. One pack per exam in `syllabus.js` (same shape: subjects, chapters with weightage + difficulty). Chapter IDs are prefixed per pack (`adv-…`, `neet-…`) so nothing collides.
+14. **NEET UG subjects:** Physics, Chemistry, Botany, Zoology (4 subjects, each weighted equally as 180/720 marks). Weightage-covered % averages across all four.
+15. **Switching exam wipes chapters + plan** (each exam has different chapters). Settings asks for confirmation and suggests exporting a backup first. Old backups without `examType` load as JEE Main.
+16. **Default exam dates are placeholders** (JEE Adv 23 May 2027, NEET 2 May 2027). Confirm against the official schedule and change them in onboarding/Settings.
+17. **Weightage for Advanced and NEET is my own approximate estimate**, not scraped from official data. Each subject is normalised to 100. Treat it as editable starter data.

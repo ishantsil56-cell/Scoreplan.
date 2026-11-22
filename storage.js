@@ -5,7 +5,7 @@
 
   function defaultState() {
     return {
-      examName: 'JEE Main 2027', examDate: '2027-01-20', dailyMinutes: 240,
+      examType: 'main', examName: 'JEE Main 2027', examDate: '2027-01-20', dailyMinutes: 240,
       chapters: {}, lastStudied: {}, studiedOn: {}, pinned: {},
       tasks: [], planGeneratedAt: null, onboardingDone: false
     };
@@ -25,6 +25,7 @@
     if (!okT) return null;
     var d = defaultState();
     return {
+      examType: ['main', 'adv', 'neet'].indexOf(o.examType) > -1 ? o.examType : 'main',
       examName: typeof o.examName === 'string' ? o.examName : d.examName,
       examDate: o.examDate, dailyMinutes: o.dailyMinutes > 0 ? o.dailyMinutes : 240,
       chapters: o.chapters, lastStudied: isObj(o.lastStudied) ? o.lastStudied : {},

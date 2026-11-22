@@ -2,15 +2,16 @@
 (function () {
   'use strict';
   var Data = window.SPData, Dates = window.SPDates, Planner = window.SPPlanner, Store = window.SPStorage;
-  var CH = {}; Data.SYLLABUS.forEach(function (c) { CH[c.id] = c; });
-  var SUBJ = Data.SUBJECTS;
-  var FOOTNOTE = 'Weightage is approximate, based on recent JEE Main papers.';
+  var CH = {};
+  Data.ORDER.forEach(function (k) { Data.PACKS[k].chapters.forEach(function (c) { CH[c.id] = c; }); });
+  function PK() { return Data.getPack(S.examType); }
+  function footnote() { return 'Weightage is approximate, based on recent ' + PK().papers + ' papers.'; }
   var STATUS = { 'not-started': 'Not started', 'in-progress': 'In progress', 'done': 'Done', 'needs-revision': 'Needs revision' };
 
   var S = Store.load() || Store.defaultState();
   var ui = {
     route: 'today', planDay: null, chSubject: 'Physics', chFilter: 'all', chSort: 'weight', chSearch: '',
-    missedOpen: false, notice: '', blockedDismissed: false, openSub: { Physics: true, Chemistry: false, Maths: false },
+    missedOpen: false, notice: '', blockedDismissed: false, openSub: {},
     ob: null, weekScroll: 0
   };
 
@@ -37,11 +38,11 @@
   /* ---------- derived stats ---------- */
   function subjectPct(s) {            // % of that subject's weightage covered by Done chapters
     var tot = 0, got = 0;
-    Data.SYLLABUS.forEach(function (c) { if (c.subject === s) { tot += c.weightage; if (stOf(c.id) === 'done') got += c.weightage; } });
+    PK().chapters.forEach(function (c) { if (c.subject === s) { tot += c.weightage; if (stOf(c.id) === 'done') got += c.weightage; } });
     return tot ? got / tot * 100 : 0;
   }
-  function weightageCovered() { return SUBJ.reduce(function (a, s) { return a + subjectPct(s); }, 0) / SUBJ.length; }
-  function doneCount() { return Data.SYLLABUS.filter(function (c) { return stOf(c.id) === 'done'; }).length; }
+  function weightageCovered() { return PK().subjects.reduce(function (a, s) { return a + subjectPct(s); }, 0) / PK().subjects.length; }
+  function doneCount() { return PK().chapters.filter(function (c) { return stOf(c.id) === 'done'; }).length; }
   function doneDates() {
     var m = {}; S.tasks.forEach(function (t) { if (t.done && t.doneAt) m[Dates.isoToYmd(t.doneAt)] = (m[Dates.isoToYmd(t.doneAt)] || 0) + 1; });
     return m;
@@ -56,7 +57,7 @@
     if (daysLeft() < 14) return 0;
     var covered = {};
     S.tasks.forEach(function (t) { if (t.type === 'study' && (t.done || t.date >= todayStr())) covered[t.chapterId] = true; });
-    return Data.SYLLABUS.filter(function (c) { var s = stOf(c.id); return (s === 'not-started' || s === 'in-progress') && !covered[c.id]; }).length;
+    return PK().chapters.filter(function (c) { var s = stOf(c.id); return (s === 'not-started' || s === 'in-progress') && !covered[c.id]; }).length;
   }
   function planChapterCount() {
     var u = {}; S.tasks.forEach(function (t) { if (t.chapterId && t.date >= todayStr()) u[t.chapterId] = 1; });
@@ -65,7 +66,7 @@
 
   /* ---------- mutations ---------- */
   function rebuild() {
-    S.tasks = Planner.generatePlan(S, Data.SYLLABUS);
+    S.tasks = Planner.generatePlan(S, PK().chapters);
     S.planGeneratedAt = new Date().toISOString();
     S.pinned = {};
     persist();
@@ -162,15 +163,19 @@
   }
 
   /* ---------- Onboarding ---------- */
-  function initOb() { ui.ob = { step: 1, name: S.examName, date: S.examDate, mins: S.dailyMinutes, done: {}, err: '' }; }
+  function initOb() { ui.ob = { step: 1, type: S.examType || 'main', name: S.examName, date: S.examDate, mins: S.dailyMinutes, done: {}, err: '' }; }
   function viewOnboarding() {
     if (!ui.ob) initOb();
+    S.examType = ui.ob.type;
     var o = ui.ob, h = '<div class="main" style="padding-bottom:24px"><div class="page ob"><div class="brand">ScorePlan</div>' +
       '<p class="muted" style="margin-top:4px">Let\'s build a plan that studies what actually gets asked.</p>' +
       '<div class="stepper">' + [1, 2, 3].map(function (i) { return '<i class="' + (i <= o.step ? 'on' : '') + '"></i>'; }).join('') + '</div>' +
       '<div class="muted" style="margin-bottom:8px">Step ' + o.step + ' of 3</div><div class="stack">';
     if (o.step === 1) {
-      h += '<h1 class="h1">Your exam</h1><div class="card stack"><div><label class="muted" for="ob-name">Exam name</label>' +
+      var P = Data.getPack(o.type);
+      h += '<h1 class="h1">Your exam</h1><div class="card stack"><div><div class="muted" style="margin-bottom:6px">Which exam?</div><div class="tabs">' + typeTabs(o.type, 'ob-type') + '</div>' +
+        '<div class="muted" style="margin-top:6px">' + P.subjects.join(' · ') + ' — ' + P.chapters.length + ' chapters</div></div>' +
+        '<div><label class="muted" for="ob-name">Exam name</label>' +
         '<input id="ob-name" class="input" data-inp="obname" value="' + esc(o.name) + '" maxlength="40"></div>' +
         '<div><label class="muted" for="ob-date">Exam date</label><input id="ob-date" type="date" class="input" data-chg="obdate" value="' + esc(o.date) + '">' +
         (o.err ? '<div class="err">' + esc(o.err) + '</div>' : '') + '</div></div>' +
@@ -185,9 +190,9 @@
     } else {
       h += '<h1 class="h1">Where are you now?</h1><p class="muted">Be honest — the plan is built around what is left.</p>' +
         '<div class="row between"><span class="muted">' + Object.keys(o.done).length + ' chapters marked done</span><button class="link" data-act="ob-clear">Mark all as not started</button></div>';
-      SUBJ.forEach(function (s) {
-        var list = Data.SYLLABUS.filter(function (c) { return c.subject === s; });
-        var n = list.filter(function (c) { return o.done[c.id]; }).length, open = ui.openSub[s];
+      PK().subjects.forEach(function (s) {
+        var list = PK().chapters.filter(function (c) { return c.subject === s; });
+        var n = list.filter(function (c) { return o.done[c.id]; }).length, open = isOpenSub(s);
         h += '<div class="card"><button class="link block" style="width:100%;text-align:left;padding:0" data-act="ob-sub" data-s="' + s + '"><span class="row between"><span class="row"><span class="dot ' + s + '"></span><b style="color:var(--text)">' + s + '</b></span><span class="muted">' + n + '/' + list.length + ' ' + (open ? '▾' : '▸') + '</span></span></button>';
         if (open) h += '<div style="margin-top:8px">' + list.map(function (c) {
           return '<label class="check-row"><input type="checkbox" class="chk" data-chg="obdone" data-id="' + c.id + '"' + (o.done[c.id] ? ' checked' : '') + '>' +
@@ -199,6 +204,10 @@
     }
     return h + '</div></div></div>';
   }
+  function typeTabs(cur, act) {
+    return Data.ORDER.map(function (k) { return '<button data-act="' + act + '" data-t="' + k + '" class="' + (cur === k ? 'active' : '') + '">' + Data.PACKS[k].label + '</button>'; }).join('');
+  }
+  function isOpenSub(s) { return ui.openSub[s] === undefined ? PK().subjects.indexOf(s) === 0 : ui.openSub[s]; }
   function validDate(v) { return /^\d{4}-\d{2}-\d{2}$/.test(v) && Dates.diff(v, todayStr()) >= 1; }
 
   /* ---------- Today ---------- */
@@ -206,7 +215,7 @@
     var t0 = todayStr(), tasks = tasksOn(t0), pending = tasks.filter(function (t) { return !t.done; });
     var h = '<div class="stack">';
     if (ui.notice) h += '<div class="banner info"><div class="row"><div class="grow">' + esc(ui.notice) + '</div><button class="link" data-act="dismiss-notice">OK</button></div></div>';
-    if (doneCount() === Data.SYLLABUS.length) h += banner('ok', 'Syllabus complete — all remaining days are revision + mocks.');
+    if (doneCount() === PK().chapters.length) h += banner('ok', 'Syllabus complete — all remaining days are revision + mocks.');
     var u = uncovered();
     if (u > 0) h += banner('warn', u + (u === 1 ? ' chapter doesn\'t' : ' chapters don\'t') + ' fit before your revision phase. More daily hours, or marking chapters you already know as done, will help.');
     h += '<div class="row between"><h1 class="h1">Today, ' + Dates.fmtDM(t0) + '</h1><span class="chip">' + (streak() > 0 ? '🔥 ' + streak() + '-day streak' : 'Start your streak today') + '</span></div>';
@@ -224,7 +233,7 @@
     }
     if (tasks.length) h += '<div class="card"><div class="row between" style="margin-bottom:4px"><h2 class="h2">Today\'s checklist</h2><span class="muted">' + (tasks.length - pending.length) + '/' + tasks.length + ' done</span></div>' + tasks.map(function (t) { return taskRow(t); }).join('') + '</div>';
 
-    h += '<div class="card"><div class="rings">' + ring(pct(doneCount(), Data.SYLLABUS.length), 'Overall') + ring(weightageCovered(), 'Weightage covered', '#16A34A') +
+    h += '<div class="card"><div class="rings">' + ring(pct(doneCount(), PK().chapters.length), 'Overall') + ring(weightageCovered(), 'Weightage covered', '#16A34A') +
       ring(tasks.length ? pct(tasks.length - pending.length, tasks.length) : 0, 'Today', '#D97706') + '</div></div>';
 
     var nx = tasksOn(Dates.add(t0, 1)).slice(0, 2);
@@ -238,7 +247,7 @@
     var t0 = todayStr(), total = daysLeft(), sel = ui.planDay;
     if (!sel || sel < t0 || (total > 0 && Dates.diff(sel, t0) >= total)) sel = ui.planDay = t0;
     var h = '<div class="stack">';
-    if (doneCount() === Data.SYLLABUS.length) h += banner('ok', 'Syllabus complete — all remaining days are revision + mocks.');
+    if (doneCount() === PK().chapters.length) h += banner('ok', 'Syllabus complete — all remaining days are revision + mocks.');
     var days = []; for (var i = 0; i < Math.max(total, 1); i++) days.push(Dates.add(t0, i));
     h += '<h1 class="h1">Your plan</h1><div class="week" id="week">' + days.map(function (d) {
       var ts = tasksOn(d), dn = ts.filter(function (t) { return t.done; }).length;
@@ -260,7 +269,7 @@
   /* ---------- Chapters ---------- */
   function chapterList() {
     var q = ui.chSearch.trim().toLowerCase();
-    var list = Data.SYLLABUS.filter(function (c) {
+    var list = PK().chapters.filter(function (c) {
       return c.subject === ui.chSubject && (!q || c.name.toLowerCase().indexOf(q) > -1) && (ui.chFilter === 'all' || stOf(c.id) === ui.chFilter);
     });
     list.sort(ui.chSort === 'name' ? function (a, b) { return a.name.localeCompare(b.name); } : function (a, b) { return b.weightage - a.weightage || a.difficulty - b.difficulty; });
@@ -268,31 +277,32 @@
     return list.map(function (c) {
       var st = stOf(c.id);
       return '<div class="ch"><div class="row between"><div class="ch-name">' + esc(c.name) + '</div><span class="diff" title="Difficulty">' + '●'.repeat(c.difficulty) + '○'.repeat(3 - c.difficulty) + '</span></div>' +
-        '<div class="row" style="margin-top:6px"><div class="wbar"><i style="width:' + (c.weightage / Data.maxWeightage * 100) + '%"></i></div><span class="badge">' + c.weightage + '%</span></div>' +
+        '<div class="row" style="margin-top:6px"><div class="wbar"><i style="width:' + (c.weightage / PK().maxWeightage * 100) + '%"></i></div><span class="badge">' + c.weightage + '%</span></div>' +
         '<div class="row between wrap" style="margin-top:8px"><select data-chg="status" data-id="' + c.id + '" aria-label="Status of ' + esc(c.name) + '">' +
         Object.keys(STATUS).map(function (k) { return '<option value="' + k + '"' + (k === st ? ' selected' : '') + '>' + STATUS[k] + '</option>'; }).join('') + '</select>' +
         (st === 'done' ? '<button class="btn secondary small" data-act="revise" data-id="' + c.id + '">Revise</button>' : '') + '</div></div>';
     }).join('');
   }
   function viewChapters() {
+    if (PK().subjects.indexOf(ui.chSubject) < 0) ui.chSubject = PK().subjects[0];
     var h = '<div class="stack"><div class="row between"><h1 class="h1">Chapters</h1><button class="btn secondary small" data-act="chsort">Sort: ' + (ui.chSort === 'weight' ? 'Weightage' : 'Name') + '</button></div>' +
-      '<div class="tabs">' + SUBJ.map(function (s) { return '<button data-act="chsubj" data-s="' + s + '" class="' + (ui.chSubject === s ? 'active' : '') + '">' + s + '<small>' + Math.round(subjectPct(s)) + '%</small></button>'; }).join('') + '</div>' +
+      '<div class="tabs">' + PK().subjects.map(function (s) { return '<button data-act="chsubj" data-s="' + s + '" class="' + (ui.chSubject === s ? 'active' : '') + '">' + s + '<small>' + Math.round(subjectPct(s)) + '%</small></button>'; }).join('') + '</div>' +
       '<input class="input" type="search" placeholder="Search chapters" data-inp="search" value="' + esc(ui.chSearch) + '" aria-label="Search chapters">' +
       '<div class="filters">' + [['all', 'All']].concat(Object.keys(STATUS).map(function (k) { return [k, STATUS[k]]; })).map(function (f) {
         return '<button data-act="chfilter" data-f="' + f[0] + '" class="' + (ui.chFilter === f[0] ? 'active' : '') + '">' + f[1] + '</button>';
-      }).join('') + '</div><div class="card" id="chlist">' + chapterList() + '</div><p class="muted">' + FOOTNOTE + '</p></div>';
+      }).join('') + '</div><div class="card" id="chlist">' + chapterList() + '</div><p class="muted">' + footnote() + '</p></div>';
     return h;
   }
 
   /* ---------- Progress ---------- */
   function viewProgress() {
-    var t0 = todayStr(), m = doneDates(), tot = Data.SYLLABUS.length, d = daysLeft();
+    var t0 = todayStr(), m = doneDates(), tot = PK().chapters.length, d = daysLeft();
     var h = '<div class="stack"><h1 class="h1">Progress</h1><div class="bignums">' +
       '<div class="card"><div class="num">' + doneCount() + '/' + tot + '</div><div class="muted">Chapters done</div></div>' +
       '<div class="card"><div class="num">' + Math.round(weightageCovered()) + '%</div><div class="muted">Weightage covered</div></div>' +
       '<div class="card"><div class="num">' + Math.max(0, d) + '</div><div class="muted">Days left</div></div>' +
       '<div class="card"><div class="num">' + streak() + '</div><div class="muted">Day streak</div></div></div>';
-    h += '<div class="card stack"><h2 class="h2">By subject</h2>' + SUBJ.map(function (s) {
+    h += '<div class="card stack"><h2 class="h2">By subject</h2>' + PK().subjects.map(function (s) {
       var p = Math.round(subjectPct(s));
       return '<div><div class="row between"><span class="row"><span class="dot ' + s + '"></span>' + s + '</span><b>' + p + '%</b></div><div class="bar" style="margin-top:6px"><i style="width:' + p + '%"></i></div></div>';
     }).join('') + '<p class="muted">Weightage covered = share of each subject\'s marks sitting in chapters you\'ve finished, averaged across the three subjects.</p></div>';
@@ -301,7 +311,7 @@
     h += '<div class="card"><h2 class="h2" style="margin-bottom:8px">Last 7 days</h2><div class="chart">' + days.map(function (x) {
       var n = m[x] || 0; return '<div><span>' + n + '</span><i style="height:' + (n / mx * 80) + 'px"></i><span>' + Dates.dow(x).charAt(0) + '</span></div>';
     }).join('') + '</div><p class="muted" style="margin-top:6px">Tasks completed per day</p></div>';
-    var rem = Data.SYLLABUS.filter(function (c) { return stOf(c.id) !== 'done'; }).sort(function (a, b) { return b.weightage - a.weightage || a.difficulty - b.difficulty; }).slice(0, 5);
+    var rem = PK().chapters.filter(function (c) { return stOf(c.id) !== 'done'; }).sort(function (a, b) { return b.weightage - a.weightage || a.difficulty - b.difficulty; }).slice(0, 5);
     h += '<div class="card"><h2 class="h2">Top 5 remaining</h2>' + (rem.length ? rem.map(function (c) {
       return '<div class="ch"><div class="row between"><div class="grow"><div class="ch-name">' + esc(c.name) + '</div><div class="task-meta"><span class="dot ' + c.subject + '"></span>' + c.subject + ' · ' + c.weightage + '%</div></div>' +
         '<button class="btn secondary small" data-act="studynext" data-id="' + c.id + '"' + (S.pinned[c.id] ? ' disabled' : '') + '>' + (S.pinned[c.id] ? 'Queued' : 'Study next') + '</button></div></div>';
@@ -312,14 +322,14 @@
   /* ---------- Settings ---------- */
   function viewSettings() {
     return '<div class="stack"><div class="row"><button class="link" data-act="go" data-r="today">← Back</button></div><h1 class="h1">Settings</h1>' +
-      '<div class="card stack"><h2 class="h2">Exam</h2><div><label class="muted" for="s-name">Exam name</label><input id="s-name" class="input" data-chg="setname" value="' + esc(S.examName) + '" maxlength="40"></div>' +
+      '<div class="card stack"><h2 class="h2">Exam</h2><div><div class="muted" style="margin-bottom:6px">Exam type</div><div class="tabs">' + typeTabs(S.examType, 'set-type') + '</div></div><div><label class="muted" for="s-name">Exam name</label><input id="s-name" class="input" data-chg="setname" value="' + esc(S.examName) + '" maxlength="40"></div>' +
       '<div><label class="muted" for="s-date">Exam date</label><input id="s-date" type="date" class="input" data-chg="setdate" value="' + esc(S.examDate) + '"></div></div>' +
       '<div class="card stack"><h2 class="h2">Daily study hours</h2><div class="hrs">' + [2, 3, 4, 5, 6].map(function (x) { return '<button data-act="sethrs" data-v="' + x * 60 + '" class="' + (S.dailyMinutes === x * 60 ? 'active' : '') + '">' + x + '</button>'; }).join('') + '</div>' +
       '<input type="range" min="1" max="10" step="0.5" value="' + S.dailyMinutes / 60 + '" data-inp="setslider" data-chg="setslider" aria-label="Daily study hours"><b id="s-hrs-label">' + fmtHrs(S.dailyMinutes) + ' per day</b></div>' +
       '<div class="card stack"><h2 class="h2">Your data</h2><p class="muted">Everything lives on this device. No account, no server.</p>' +
       '<button class="btn secondary block" data-act="export">Export my data</button><button class="btn secondary block" data-act="import">Import data</button>' +
       '<input type="file" id="import-file" accept="application/json,.json" hidden><button class="btn danger block" data-act="reset">Reset everything</button></div>' +
-      '<div class="card stack"><h2 class="h2">About</h2><p>ScorePlan builds your JEE Main revision plan from real paper weightage, and works fully offline.</p><p class="muted">' + FOOTNOTE + '</p><p class="muted">v1.0</p></div></div>';
+      '<div class="card stack"><h2 class="h2">About</h2><p>ScorePlan builds your ' + esc(PK().label) + ' revision plan from real paper weightage, and works fully offline.</p><p class="muted">' + footnote() + '</p><p class="muted">v1.0</p></div></div>';
   }
 
   /* ---------- render ---------- */
@@ -361,15 +371,27 @@
         if (o.step === 1) { o.name = ($('#ob-name').value || '').trim() || 'JEE Main 2027'; if (!validDate(o.date)) { o.err = 'Pick a future date.'; render(); break; } o.err = ''; }
         o.step++; render(); window.scrollTo(0, 0); break;
       case 'ob-back': o.step--; render(); window.scrollTo(0, 0); break;
+      case 'ob-type': {
+        var np = Data.getPack(el.dataset.t); o.type = np.id; o.name = np.defaultName; o.date = np.defaultDate; o.done = {}; o.err = ''; ui.openSub = {}; S.examType = np.id; render(); break;
+      }
       case 'ob-hrs': o.mins = +el.dataset.v; render(); break;
-      case 'ob-sub': ui.openSub[el.dataset.s] = !ui.openSub[el.dataset.s]; render(); break;
+      case 'ob-sub': ui.openSub[el.dataset.s] = !isOpenSub(el.dataset.s); render(); break;
       case 'ob-clear': o.done = {}; render(); break;
       case 'ob-finish':
-        S.examName = o.name; S.examDate = o.date; S.dailyMinutes = o.mins || 240; S.chapters = {}; S.lastStudied = {}; S.studiedOn = {}; S.pinned = {}; S.tasks = [];
-        Data.SYLLABUS.forEach(function (c) { S.chapters[c.id] = o.done[c.id] ? 'done' : 'not-started'; });
+        S.examType = o.type; S.examName = o.name; S.examDate = o.date; S.dailyMinutes = o.mins || 240; S.chapters = {}; S.lastStudied = {}; S.studiedOn = {}; S.pinned = {}; S.tasks = [];
+        PK().chapters.forEach(function (c) { S.chapters[c.id] = o.done[c.id] ? 'done' : 'not-started'; });
         S.onboardingDone = true; rebuild();
         ui.notice = 'Your plan covers ' + planChapterCount() + ' chapters in ' + daysLeft() + ' days.'; ui.ob = null; ui.route = 'today'; location.hash = '#/today'; render(); window.scrollTo(0, 0); break;
       /* settings */
+      case 'set-type': {
+        var t = el.dataset.t; if (t === S.examType) break;
+        ask({ title: 'Switch to ' + Data.PACKS[t].label + '?', message: 'Each exam has its own chapters, so your current chapters and plan on this device will be cleared. Export a backup first if you want to keep them.', ok: 'Switch', danger: true }).then(function (y) {
+          if (!y) return;
+          var np = Data.PACKS[t]; S.examType = t; S.examName = np.defaultName; S.examDate = np.defaultDate;
+          S.chapters = {}; S.lastStudied = {}; S.studiedOn = {}; S.pinned = {}; S.tasks = []; S.planGeneratedAt = null; S.onboardingDone = false;
+          ui.ob = null; ui.openSub = {}; ui.chSubject = np.subjects[0]; ui.route = 'today'; location.hash = '#/today'; persist(); render();
+        }); break;
+      }
       case 'sethrs': S.dailyMinutes = +el.dataset.v; persist(); afterHoursChange(); break;
       case 'export': {
         var blob = new Blob([Store.exportJSON(S)], { type: 'application/json' }), url = URL.createObjectURL(blob), l = document.createElement('a');
