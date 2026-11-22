@@ -341,7 +341,7 @@
     wk = $('#week');
     if (wk) { var a = wk.querySelector('[data-active="1"]'); if (ui.weekScroll) wk.scrollLeft = ui.weekScroll; else if (a) wk.scrollLeft = Math.max(0, a.offsetLeft - 16); }
   }
-  function go(r) { ui.route = r; if (location.hash !== '#/' + r) location.hash = '#/' + r; else render(); window.scrollTo(0, 0); }
+  function go(r) { ui.route = r; if (location.hash !== '#/' + r) location.hash = '#/' + r; render(); window.scrollTo(0, 0); }
   window.addEventListener('hashchange', function () {
     var r = location.hash.replace('#/', ''); if (['today', 'plan', 'chapters', 'progress', 'settings'].indexOf(r) > -1 && r !== ui.route) { ui.route = r; render(); window.scrollTo(0, 0); }
   });

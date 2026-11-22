@@ -19,6 +19,9 @@
 ## Service worker cache (added 22 Nov 2026)
 18. **Bump `CACHE` in `sw.js` on every release.** The worker is cache-first and the browser only picks up a new worker when `sw.js` itself changes bytes. v2 shipped with the cache name still at `scoreplan-v1.0`, so phones that had visited v1 kept serving the old files and the new exam packs never appeared. Rule: every deploy that changes app files must also bump the cache name.
 
+## Tab fix (22 Nov 2026)
+19. **Tabs needed two taps because `go()` never rendered on the first one.** It set `ui.route` and changed the hash, leaving the redraw to the `hashchange` handler — but that handler skips rendering when the route already matches, which it always did by then. The second tap hit the `else render()` branch. Fix: `go()` now always calls `render()` itself; the `hashchange` handler still covers back/forward navigation.
+
 ## Exam packs (JEE Main / JEE Advanced / NEET UG)
 13. One pack per exam in `syllabus.js` (same shape: subjects, chapters with weightage + difficulty). Chapter IDs are prefixed per pack (`adv-…`, `neet-…`) so nothing collides.
 14. **NEET UG subjects:** Physics, Chemistry, Botany, Zoology (4 subjects, each weighted equally as 180/720 marks). Weightage-covered % averages across all four.
