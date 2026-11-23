@@ -1,4 +1,6 @@
-/* ScorePlan — Firebase Auth (Google) + Firestore sync. Optional: the app works fully without it.
+/* ScorePlan — Firebase Auth (Google) + Firestore sync. Sign-in is the first screen;
+   a skip link keeps the app usable offline without it, and the Account section in
+   Settings always offers sign-in later.
    Uses the Firebase v10 compat SDK (classic scripts, no build step). Sign-in uses the redirect
    flow, which works inside an installed PWA where popups are blocked.
    Sync model: one Firestore doc per user (users/{uid}) holding { state, updatedAt }.
@@ -21,6 +23,18 @@
   function currentUser() { return user; }
   function status(s, msg) { if (onSyncStatus) onSyncStatus(s, msg || ''); }
 
+  /* Plain-language sign-in errors: the app shows these on the sign-in screen, so a
+     failed sign-in is never a silent "Sign in" button again. */
+  function friendlyError(err) {
+    if (!err) return 'Sign-in failed.';
+    if (err.code === 'auth/operation-not-allowed') return 'Google sign-in is not enabled for this project. In the Firebase console: Authentication → Sign-in method → Google → Enable.';
+    if (err.code === 'auth/unauthorized-domain') return 'This site is not an authorized domain. In the Firebase console: Authentication → Settings → Authorized domains → add ishantsil56-cell.github.io.';
+    if (err.code === 'auth/network-request-failed') return 'Could not reach Google. Check your connection and try again.';
+    if (err.code === 'auth/web-storage-unsupported') return 'This browser blocks the storage sign-in needs. Try opening ScorePlan in Chrome.';
+    if (err.code === 'auth/cancelled-popup-request' || err.code === 'auth/popup-closed-by-user') return 'Sign-in was cancelled. Try again.';
+    return err.message || err.code || 'Sign-in failed.';
+  }
+
   function init(callbacks) {
     onUserChange = callbacks.onUserChange; onSyncStatus = callbacks.onSyncStatus;
     if (typeof root.firebase === 'undefined' || !isConfigured()) { status('off'); return; }
@@ -36,8 +50,7 @@
     });
     auth.getRedirectResult().catch(function (err) {
       if (!err) return;
-      if (err.code === 'auth/unauthorized-domain') status('error', 'Add this domain in Firebase console: Authentication → Settings → Authorized domains.');
-      else status('error', err.message || err.code || 'Sign-in failed.');
+      status('error', friendlyError(err));
     });
   }
 
@@ -45,8 +58,7 @@
     if (!auth) return;
     var provider = new root.firebase.auth.GoogleAuthProvider();
     auth.signInWithRedirect(provider).catch(function (err) {
-      if (err && err.code === 'auth/unauthorized-domain') status('error', 'Add this domain in Firebase console: Authentication → Settings → Authorized domains.');
-      else if (err) status('error', err.message || err.code || 'Sign-in failed.');
+      if (err) status('error', friendlyError(err));
     });
   }
   function signOut() { if (auth) auth.signOut().catch(function () {}); }

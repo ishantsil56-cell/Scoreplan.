@@ -10,6 +10,15 @@
   var STATUS = { 'not-started': 'Not started', 'in-progress': 'In progress', 'done': 'Done', 'needs-revision': 'Needs revision' };
 
   var S = Store.load() || Store.defaultState();
+  var authResolved = false, authError = '';
+  var SKIP_KEY = 'scoreplan-skip-signin';
+  function skippedSignIn() { try { return localStorage.getItem(SKIP_KEY) === '1'; } catch (e) { return false; } }
+  /* Sign-in gate: the first screen for signed-out users when sign-in is available.
+     Never gates when Firebase isn't set up or the SDK can't load (offline) — the app
+     still works locally then. */
+  function shouldGate() {
+    return !!(Auth && Auth.isConfigured() && Auth.isAvailable() && authResolved && !Auth.currentUser() && !skippedSignIn());
+  }
   var ui = {
     route: 'today', planDay: null, chSubject: 'Physics', chFilter: 'all', chSort: 'weight', chSearch: '',
     missedOpen: false, notice: '', blockedDismissed: false, openSub: {},
@@ -165,6 +174,20 @@
 
   /* ---------- Onboarding ---------- */
   function initOb() { ui.ob = { step: 1, type: S.examType || 'main', name: S.examName, date: S.examDate, mins: S.dailyMinutes, done: {}, err: '' }; }
+  /* First screen for signed-out users: sign in with Google so the plan lives in the
+     account, not just this browser. A skip link keeps the app usable offline, and
+     sign-in stays available in Settings → Account. Any sign-in error shows here, in
+     plain words, instead of silently dropping back to a Sign in button. */
+  function viewSignIn() {
+    return '<div class="main" style="padding-bottom:24px"><div class="page ob"><div class="brand">ScorePlan</div>' +
+      '<p class="muted" style="margin-top:4px">Your revision plan, saved to your Google account and in sync on every device.</p>' +
+      '<div class="stack" style="margin-top:24px"><h1 class="h1">Sign in</h1>' +
+      '<div class="card stack"><p>Sign in with Google and your plan is stored in your account — it follows you to any device, and nothing is lost if this browser\'s data is cleared.</p>' +
+      (authError ? '<div class="banner warn">' + esc(authError) + '</div>' : '') +
+      '<button class="btn block" data-act="auth-signin">Sign in with Google</button>' +
+      '<button class="link block" style="width:100%;text-align:center" data-act="auth-skip">Continue without signing in</button>' +
+      '<p class="muted">Without signing in, your plan lives only in this browser. You can sign in later from Settings → Account.</p></div></div></div></div>';
+  }
   function viewOnboarding() {
     if (!ui.ob) initOb();
     S.examType = ui.ob.type;
@@ -374,7 +397,7 @@
     if (!Auth || !Auth.isConfigured()) return h + '<p class="muted">Google sign-in isn\'t set up yet. It needs a free Firebase project — the setup steps are in firebase-config.js in the repo.</p></div>';
     if (!Auth.isAvailable()) return h + '<p class="muted">Can\'t reach Google right now (you may be offline). Your plan still works — sign-in will be here when you\'re back online.</p></div>';
     var u = Auth.currentUser();
-    if (!u) return h + '<p class="muted">Sign in to back up your plan to your Google account and sync it across devices. Optional — everything works without it.</p><button class="btn block" data-act="auth-signin">Sign in with Google</button></div>';
+    if (!u) return h + '<p class="muted">Sign in to save your plan to your Google account and sync it across devices.</p>' + (authError ? '<div class="banner warn">' + esc(authError) + '</div>' : '') + '<button class="btn block" data-act="auth-signin">Sign in with Google</button></div>';
     var avatar = u.photoURL ? '<img src="' + esc(u.photoURL) + '" alt="" style="width:32px;height:32px;border-radius:50%;object-fit:cover">' : '';
     return h + '<div class="row">' + avatar + '<div class="grow"><b>' + esc(u.displayName || u.email || 'Signed in') + '</b><div class="muted">' + esc(u.email || '') + '</div></div></div>' +
       '<div class="muted" id="sync-status">' + esc(syncStatusText()) + '</div>' +
@@ -388,7 +411,7 @@
       '<div><label class="muted" for="s-date">Exam date</label><input id="s-date" type="date" class="input" data-chg="setdate" value="' + esc(S.examDate) + '"></div></div>' +
       '<div class="card stack"><h2 class="h2">Daily study hours</h2><div class="hrs">' + [2, 3, 4, 5, 6].map(function (x) { return '<button data-act="sethrs" data-v="' + x * 60 + '" class="' + (S.dailyMinutes === x * 60 ? 'active' : '') + '">' + x + '</button>'; }).join('') + '</div>' +
       '<input type="range" min="1" max="10" step="0.5" value="' + S.dailyMinutes / 60 + '" data-inp="setslider" data-chg="setslider" aria-label="Daily study hours"><b id="s-hrs-label">' + fmtHrs(S.dailyMinutes) + ' per day</b></div>' +
-      accountCard() + '<div class="card stack"><h2 class="h2">Your data</h2><p class="muted">Everything lives on this device. Sign in above to also back it up to your Google account and sync it across devices.</p>' +
+      accountCard() + '<div class="card stack"><h2 class="h2">Your data</h2><p class="muted">' + (Auth && Auth.currentUser() ? 'Your plan lives in your Google account and syncs to every device. This browser keeps a copy so the app works offline.' : 'Your plan lives only in this browser until you sign in. Sign in above to save it to your Google account.') + '</p>' +
       '<button class="btn secondary block" data-act="export">Export my data</button><button class="btn secondary block" data-act="import">Import data</button>' +
       '<input type="file" id="import-file" accept="application/json,.json" hidden><button class="btn danger block" data-act="reset">Reset everything</button></div>' +
       '<div class="card stack"><h2 class="h2">About</h2><p>ScorePlan builds your ' + esc(PK().label) + ' revision plan from real paper weightage, and works fully offline.</p><p class="muted">' + footnote() + '</p><p class="muted">v1.0</p></div></div>';
@@ -397,6 +420,8 @@
   /* ---------- render ---------- */
   function render() {
     var app = $('#app'), wk = $('#week'); if (wk) ui.weekScroll = wk.scrollLeft;
+    if (Auth && Auth.isConfigured() && Auth.isAvailable() && !authResolved) { app.innerHTML = '<div class="main"><div class="page ob"><div class="brand">ScorePlan</div><p class="muted" style="margin-top:8px">Loading…</p></div></div>'; return; }
+    if (shouldGate()) { app.innerHTML = viewSignIn(); return; }
     if (!S.onboardingDone) { app.innerHTML = viewOnboarding(); return; }
     var views = { today: viewToday, plan: viewPlan, chapters: viewChapters, progress: viewProgress, settings: viewSettings };
     app.innerHTML = '<div class="shell">' + nav() + '<main class="main"><div class="page">' + topbar() + banners() + (views[ui.route] || viewToday)() + '</div></main></div>';
@@ -455,7 +480,8 @@
         }); break;
       }
       case 'sethrs': S.dailyMinutes = +el.dataset.v; persist(); afterHoursChange(); break;
-      case 'auth-signin': if (Auth) Auth.signIn(); break;
+      case 'auth-signin': authError = ''; if (Auth) Auth.signIn(); break;
+      case 'auth-skip': try { localStorage.setItem(SKIP_KEY, '1'); } catch (e) {} render(); break;
       case 'auth-signout': if (Auth) Auth.signOut(); break;
       case 'auth-sync': manualSync(); break;
       case 'export': {
@@ -522,15 +548,18 @@
   /* ---------- boot ---------- */
   if (Auth) Auth.init({
     onUserChange: function (u) {
-      if (u) { setSyncStatus('idle', ''); reconcileOnSignIn(); }
+      authResolved = true;
+      if (u) { authError = ''; setSyncStatus('idle', ''); reconcileOnSignIn(); }
       else setSyncStatus('off', '');
       render();
     },
     onSyncStatus: function (status, msg) {
       setSyncStatus(status, msg);
-      if (status === 'error' && msg && msg.indexOf('Add this domain') === 0) toast(msg);
+      if (status === 'error' && msg) { authError = msg; render(); }
     }
   });
+  /* Safety net: if Firebase never reports the auth state, don't sit on Loading forever. */
+  setTimeout(function () { if (!authResolved) { authResolved = true; render(); } }, 4000);
   var h0 = location.hash.replace('#/', ''); if (['today', 'plan', 'chapters', 'progress', 'settings'].indexOf(h0) > -1) ui.route = h0;
   render();
   if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) navigator.serviceWorker.register('sw.js').catch(function () {});
