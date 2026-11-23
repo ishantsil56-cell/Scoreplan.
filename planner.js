@@ -29,6 +29,8 @@
     var dateAt = function (i) { return Dates.add(today, i); };
     var capAt = function (i) { return Math.max(0, daily - (fixed[dateAt(i)] || 0)); };
     var byWeight = chapters.slice().sort(cmpWeight);
+    var isWeak = function (id) { return !!(state.weakest && state.weakest[id]); };
+    var revOrder = chapters.slice().sort(function (a, b) { return (isWeak(b.id) - isWeak(a.id)) || cmpWeight(a, b); });
     var lastRev = {};
 
     function mk(date, ch, type, title, minutes, extra) {
@@ -53,17 +55,17 @@
         return;
       }
       var addRev = function (c, mins) {
-        out.push(mk(date, c, 'revise', 'Revise: ' + c.name, mins, { rev: 0, prev: stOf(c.id) }));
+        out.push(mk(date, c, 'revise', 'Revise: ' + c.name + (isWeak(c.id) ? ' ★' : ''), mins, { rev: 0, prev: stOf(c.id) }));
         rem -= mins;
       };
       if ((j + 1) % mockEvery === 0) {
         var m = mockTask(date, rem);
         if (m) { out.push(m); rem -= m.minutes; }
-        if (rem >= 30) { addRev(byWeight[rp % byWeight.length], Math.min(45, rem)); rp++; }
+        if (rem >= 30) { addRev(revOrder[rp % revOrder.length], Math.min(45, rem)); rp++; }
       } else {
         var guard = 0;
-        while (rem >= 45 && guard++ < byWeight.length) {
-          var c = byWeight[rp % byWeight.length]; rp++;
+        while (rem >= 45 && guard++ < revOrder.length) {
+          var c = revOrder[rp % revOrder.length]; rp++;
           addRev(c, (c.difficulty === 3 && rem >= 60) ? 60 : 45);
         }
       }
@@ -89,6 +91,7 @@
       var pr = c.weightage * (s === 'in-progress' ? 0.6 : 1);
       if (missedStudy[c.id]) pr *= 1.5;                       // catch-up boost
       if (state.pinned && state.pinned[c.id]) pr += 1000;     // "Study next"
+      if (isWeak(c.id)) pr += 100;                            // weakest chapters first, weightage orders within the group
       var mins = c.hoursEstimate * 60;
       if (s === 'in-progress' && doneStudyMin[c.id]) mins = Math.max(60, mins - doneStudyMin[c.id]);
       return { c: c, pr: pr, left: mins };
@@ -133,7 +136,7 @@
       for (var k = 0; k < pend.length;) {
         var p = pend[k];
         if (p.idx <= d && p.minutes <= budget && p.minutes <= rem && !used[p.c.id]) {
-          out.push(mk(date, p.c, 'revise', 'Revise: ' + p.c.name, p.minutes, { rev: p.rev, prev: stOf(p.c.id) }));
+          out.push(mk(date, p.c, 'revise', 'Revise: ' + p.c.name + (isWeak(p.c.id) ? ' ★' : ''), p.minutes, { rev: p.rev, prev: stOf(p.c.id) }));
           budget -= p.minutes; rem -= p.minutes; used[p.c.id] = true; lastRev[p.c.id] = d;
           pend.splice(k, 1);
         } else k++;
@@ -145,12 +148,13 @@
         if (!cur) { if (!queue.length) break; cur = queue.shift(); }
         if (cur.left > rem && rem < 30) break;
         var chunk = Math.min(cur.left, rem);
-        out.push(mk(date, cur.c, 'study', 'Study: ' + cur.c.name, chunk, { prev: stOf(cur.c.id) }));
+        out.push(mk(date, cur.c, 'study', 'Study: ' + cur.c.name + (isWeak(cur.c.id) ? ' ★' : ''), chunk, { prev: stOf(cur.c.id) }));
         cur.left -= chunk; rem -= chunk; newCount++;
         if (cur.left <= 0) {
           REV_OFFSETS.forEach(function (off, kk) {
             if (d + off < learnDays) pend.push({ idx: d + off, c: cur.c, minutes: REV_MINUTES[kk], rev: kk + 1 });
           });
+          if (isWeak(cur.c.id) && d + 14 < learnDays) pend.push({ idx: d + 14, c: cur.c, minutes: 60, rev: 4 }); // weakest chapters get a 4th revision
           doneIds[cur.c.id] = true; cur = null;
         }
       }
@@ -166,10 +170,10 @@
         if (!cands.length) break;
         cands.sort(function (a, b) {
           var la = lastRev[a.id] === undefined ? -1 : lastRev[a.id], lb = lastRev[b.id] === undefined ? -1 : lastRev[b.id];
-          return la - lb || cmpWeight(a, b);
+          return la - lb || (isWeak(b.id) - isWeak(a.id)) || cmpWeight(a, b);
         });
         var c = cands[0];
-        out.push(mk(date, c, 'revise', 'Revise: ' + c.name, 45, { rev: 0, prev: stOf(c.id) }));
+        out.push(mk(date, c, 'revise', 'Revise: ' + c.name + (isWeak(c.id) ? ' ★' : ''), 45, { rev: 0, prev: stOf(c.id) }));
         rem -= 45; used[c.id] = true; lastRev[c.id] = d; filled++;
       }
     }
@@ -179,7 +183,7 @@
     out.forEach(function (t) { if (t.type === 'study') (parts[t.chapterId] = parts[t.chapterId] || []).push(t); });
     Object.keys(parts).forEach(function (id) {
       var arr = parts[id];
-      if (arr.length > 1) arr.forEach(function (t, i) { t.title = 'Study: ' + chById[id].name + ' (Part ' + (i + 1) + ' of ' + arr.length + ')'; });
+      if (arr.length > 1) arr.forEach(function (t, i) { t.title = 'Study: ' + chById[id].name + ' (Part ' + (i + 1) + ' of ' + arr.length + ')' + (isWeak(id) ? ' ★' : ''); });
     });
 
     // revision phase

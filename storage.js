@@ -6,7 +6,7 @@
   function defaultState() {
     return {
       examType: 'main', examName: 'JEE Main 2027', examDate: '2027-01-20', dailyMinutes: 240,
-      chapters: {}, lastStudied: {}, studiedOn: {}, pinned: {},
+      chapters: {}, lastStudied: {}, studiedOn: {}, pinned: {}, weakest: {},
       tasks: [], planGeneratedAt: null, onboardingDone: false
     };
   }
@@ -30,6 +30,7 @@
       examDate: o.examDate, dailyMinutes: o.dailyMinutes > 0 ? o.dailyMinutes : 240,
       chapters: o.chapters, lastStudied: isObj(o.lastStudied) ? o.lastStudied : {},
       studiedOn: isObj(o.studiedOn) ? o.studiedOn : {}, pinned: isObj(o.pinned) ? o.pinned : {},
+      weakest: isObj(o.weakest) ? o.weakest : {},
       tasks: o.tasks, planGeneratedAt: typeof o.planGeneratedAt === 'string' ? o.planGeneratedAt : null,
       onboardingDone: !!o.onboardingDone
     };

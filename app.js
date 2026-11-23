@@ -11,7 +11,7 @@
 
   var S = Store.load() || Store.defaultState();
   var authResolved = false, authError = '';
-  var APP_VERSION = '2.7'; // keep in sync with CACHE in sw.js — shown on the sign-in screen so a screenshot tells us the running version
+  var APP_VERSION = '2.8'; // keep in sync with CACHE in sw.js — shown in Settings → About so a screenshot tells us the running version
   var SKIP_KEY = 'scoreplan-skip-signin';
   function skippedSignIn() { try { return localStorage.getItem(SKIP_KEY) === '1'; } catch (e) { return false; } }
   /* Sign-in gate: the first screen for signed-out users when sign-in is available.
@@ -170,26 +170,17 @@
     if (Store.isBlocked() && !ui.blockedDismissed)
       h += '<div class="banner warn"><div class="row"><div class="grow">Your browser is blocking saved data — your plan won\'t be saved between visits.</div><button class="link" data-act="dismiss-blocked">Dismiss</button></div></div>';
     if ((ui.route === 'today' || ui.route === 'plan') && daysLeft() < 14 && daysLeft() > 0) h += banner('warn', 'Crash mode: only revision and mocks — no new chapters.');
+    if (S.onboardingDone && !ui.weakDismissed && !(S.weakest && Object.keys(S.weakest).length) && (ui.route === 'today' || ui.route === 'plan'))
+      h += '<div class="banner info"><div class="row"><div class="grow">Mark your weakest chapters and the plan will tackle them first, highest weightage first.</div><button class="link" data-act="go" data-r="chapters">Mark weakest</button><button class="link" data-act="dismiss-weak">Dismiss</button></div></div>';
     return h;
   }
 
   /* ---------- Onboarding ---------- */
-  function initOb() { ui.ob = { step: 1, type: S.examType || 'main', name: S.examName, date: S.examDate, mins: S.dailyMinutes, done: {}, err: '' }; }
+  function initOb() { ui.ob = { step: 1, type: S.examType || 'main', name: S.examName, date: S.examDate, mins: S.dailyMinutes, done: {}, weak: {}, err: '' }; }
   /* First screen for signed-out users: sign in with Google so the plan lives in the
      account, not just this browser. A skip link keeps the app usable offline, and
      sign-in stays available in Settings → Account. Any sign-in error shows here, in
      plain words, instead of silently dropping back to a Sign in button. */
-  /* Diagnostics box on the sign-in screen: version, environment and the auth event
-     log, so a failed sign-in can be diagnosed from a screenshot. */
-  function debugBlock() {
-    var lines = ['App version: ' + APP_VERSION,
-      'Browser: ' + (navigator.userAgent || '').slice(0, 90),
-      'Firebase SDK: ' + (typeof window.firebase === 'undefined' ? 'NOT LOADED' : 'loaded'),
-      'Configured: ' + (Auth && Auth.isConfigured() ? 'yes' : 'no') + ' · Auth ready: ' + (Auth && Auth.isAvailable() ? 'yes' : 'no'),
-      'Signed in: ' + (Auth && Auth.currentUser() ? 'yes (' + (Auth.currentUser().email || '') + ')' : 'no')];
-    if (Auth && Auth.getDebugLog) lines = lines.concat(Auth.getDebugLog());
-    return '<div class="card stack"><h2 class="h2">Diagnostics</h2><p class="muted">If sign-in fails, screenshot this box and send it — it shows exactly what happened.</p><pre style="white-space:pre-wrap;word-break:break-word;font-size:12px;margin:0">' + esc(lines.join('\n')) + '</pre></div>';
-  }
   function viewSignIn() {
     return '<div class="main" style="padding-bottom:24px"><div class="page ob"><div class="brand">ScorePlan</div>' +
       '<p class="muted" style="margin-top:4px">Your revision plan, saved to your Google account and in sync on every device.</p>' +
@@ -199,7 +190,7 @@
       '<button class="btn block" data-act="auth-signin">Sign in with Google</button>' +
       '<button class="link block" style="width:100%;text-align:center" data-act="auth-skip">Continue without signing in</button>' +
       '<button class="link block" style="width:100%;text-align:center" data-act="auth-recheck">Already signed in? Tap here to check</button>' +
-      '<p class="muted">Without signing in, your plan lives only in this browser. You can sign in later from Settings → Account.</p></div>' + debugBlock() + '</div></div></div>';
+      '<p class="muted">Without signing in, your plan lives only in this browser. You can sign in later from Settings → Account.</p></div></div></div></div>';
   }
   function viewOnboarding() {
     if (!ui.ob) initOb();
@@ -226,14 +217,16 @@
         '<div class="row"><button class="btn secondary" data-act="ob-back">Back</button><button class="btn grow" data-act="ob-next">Next</button></div>';
     } else {
       h += '<h1 class="h1">Where are you now?</h1><p class="muted">Be honest — the plan is built around what is left.</p>' +
-        '<div class="row between"><span class="muted">' + Object.keys(o.done).length + ' chapters marked done</span><button class="link" data-act="ob-clear">Mark all as not started</button></div>';
+        '<p class="muted">Tap Weakest on the chapters you struggle with most — the plan tackles those first, highest weightage first.</p>' +
+        '<div class="row between"><span class="muted">' + Object.keys(o.done).length + ' done · ' + Object.keys(o.weak).length + ' weakest</span><button class="link" data-act="ob-clear">Mark all as not started</button></div>';
       PK().subjects.forEach(function (s) {
         var list = PK().chapters.filter(function (c) { return c.subject === s; });
         var n = list.filter(function (c) { return o.done[c.id]; }).length, open = isOpenSub(s);
         h += '<div class="card"><button class="link block" style="width:100%;text-align:left;padding:0" data-act="ob-sub" data-s="' + s + '"><span class="row between"><span class="row"><span class="dot ' + s + '"></span><b style="color:var(--text)">' + s + '</b></span><span class="muted">' + n + '/' + list.length + ' ' + (open ? '▾' : '▸') + '</span></span></button>';
         if (open) h += '<div style="margin-top:8px">' + list.map(function (c) {
-          return '<label class="check-row"><input type="checkbox" class="chk" data-chg="obdone" data-id="' + c.id + '"' + (o.done[c.id] ? ' checked' : '') + '>' +
-            '<span class="grow" style="overflow-wrap:anywhere">' + esc(c.name) + '</span><span class="badge">' + c.weightage + '%</span><span class="muted">Already done</span></label>';
+          return '<div class="row"><label class="check-row grow"><input type="checkbox" class="chk" data-chg="obdone" data-id="' + c.id + '"' + (o.done[c.id] ? ' checked' : '') + '>' +
+            '<span class="grow" style="overflow-wrap:anywhere">' + esc(c.name) + '</span><span class="badge">' + c.weightage + '%</span><span class="muted">Already done</span></label>' +
+            '<button data-act="ob-weak" data-id="' + c.id + '" class="chip' + (o.weak[c.id] ? ' warn' : '') + '">' + (o.weak[c.id] ? '★ Weakest' : 'Weakest') + '</button></div>';
         }).join('') + '</div>';
         h += '</div>';
       });
@@ -312,11 +305,12 @@
     list.sort(ui.chSort === 'name' ? function (a, b) { return a.name.localeCompare(b.name); } : function (a, b) { return b.weightage - a.weightage || a.difficulty - b.difficulty; });
     if (!list.length) return empty('No chapters match that search.');
     return list.map(function (c) {
-      var st = stOf(c.id);
-      return '<div class="ch"><div class="row between"><div class="ch-name">' + esc(c.name) + '</div><span class="diff" title="Difficulty">' + '●'.repeat(c.difficulty) + '○'.repeat(3 - c.difficulty) + '</span></div>' +
+      var st = stOf(c.id), wk = !!(S.weakest && S.weakest[c.id]);
+      return '<div class="ch"><div class="row between"><div class="ch-name">' + esc(c.name) + (wk ? ' ★' : '') + '</div><span class="diff" title="Difficulty">' + '●'.repeat(c.difficulty) + '○'.repeat(3 - c.difficulty) + '</span></div>' +
         '<div class="row" style="margin-top:6px"><div class="wbar"><i style="width:' + (c.weightage / PK().maxWeightage * 100) + '%"></i></div><span class="badge">' + c.weightage + '%</span></div>' +
         '<div class="row between wrap" style="margin-top:8px"><select data-chg="status" data-id="' + c.id + '" aria-label="Status of ' + esc(c.name) + '">' +
         Object.keys(STATUS).map(function (k) { return '<option value="' + k + '"' + (k === st ? ' selected' : '') + '>' + STATUS[k] + '</option>'; }).join('') + '</select>' +
+        '<button class="btn secondary small" data-act="weak-toggle" data-id="' + c.id + '">' + (wk ? '★ Weakest' : 'Weakest') + '</button>' +
         (st === 'done' ? '<button class="btn secondary small" data-act="revise" data-id="' + c.id + '">Revise</button>' : '') + '</div></div>';
     }).join('');
   }
@@ -466,20 +460,26 @@
       case 'chsort': ui.chSort = ui.chSort === 'weight' ? 'name' : 'weight'; render(); break;
       case 'revise': S.chapters[el.dataset.id] = 'needs-revision'; persist(); render(); toast('Marked for revision. It joins your plan on the next rebuild.'); break;
       case 'studynext': S.pinned[el.dataset.id] = true; persist(); render(); toast('Moved to the front of the queue on your next rebuild.'); break;
+      case 'weak-toggle': { var wid = el.dataset.id; if (!S.weakest) S.weakest = {};
+        if (S.weakest[wid]) { delete S.weakest[wid]; persist(); $('#chlist').innerHTML = chapterList(); toast('Removed from weakest. Rebuild your plan to apply it.'); }
+        else { S.weakest[wid] = true; persist(); $('#chlist').innerHTML = chapterList(); toast('Marked weakest. Rebuild your plan to apply it.'); } break; }
+      case 'dismiss-weak': ui.weakDismissed = true; render(); break;
       /* onboarding */
       case 'ob-next':
         if (o.step === 1) { o.name = ($('#ob-name').value || '').trim() || 'JEE Main 2027'; if (!validDate(o.date)) { o.err = 'Pick a future date.'; render(); break; } o.err = ''; }
         o.step++; render(); window.scrollTo(0, 0); break;
       case 'ob-back': o.step--; render(); window.scrollTo(0, 0); break;
       case 'ob-type': {
-        var np = Data.getPack(el.dataset.t); o.type = np.id; o.name = np.defaultName; o.date = np.defaultDate; o.done = {}; o.err = ''; ui.openSub = {}; S.examType = np.id; render(); break;
+        var np = Data.getPack(el.dataset.t); o.type = np.id; o.name = np.defaultName; o.date = np.defaultDate; o.done = {}; o.weak = {}; o.err = ''; ui.openSub = {}; S.examType = np.id; render(); break;
       }
       case 'ob-hrs': o.mins = +el.dataset.v; render(); break;
       case 'ob-sub': ui.openSub[el.dataset.s] = !isOpenSub(el.dataset.s); render(); break;
       case 'ob-clear': o.done = {}; render(); break;
+      case 'ob-weak': if (o.weak[el.dataset.id]) delete o.weak[el.dataset.id]; else o.weak[el.dataset.id] = true; render(); break;
       case 'ob-finish':
-        S.examType = o.type; S.examName = o.name; S.examDate = o.date; S.dailyMinutes = o.mins || 240; S.chapters = {}; S.lastStudied = {}; S.studiedOn = {}; S.pinned = {}; S.tasks = [];
+        S.examType = o.type; S.examName = o.name; S.examDate = o.date; S.dailyMinutes = o.mins || 240; S.chapters = {}; S.lastStudied = {}; S.studiedOn = {}; S.pinned = {}; S.weakest = {}; S.tasks = [];
         PK().chapters.forEach(function (c) { S.chapters[c.id] = o.done[c.id] ? 'done' : 'not-started'; });
+        S.weakest = Object.assign({}, o.weak);
         S.onboardingDone = true; rebuild();
         ui.notice = 'Your plan covers ' + planChapterCount() + ' chapters in ' + daysLeft() + ' days.'; ui.ob = null; ui.route = 'today'; location.hash = '#/today'; render(); window.scrollTo(0, 0); break;
       /* settings */
@@ -488,7 +488,7 @@
         ask({ title: 'Switch to ' + Data.PACKS[t].label + '?', message: 'Each exam has its own chapters, so your current chapters and plan on this device will be cleared. Export a backup first if you want to keep them.', ok: 'Switch', danger: true }).then(function (y) {
           if (!y) return;
           var np = Data.PACKS[t]; S.examType = t; S.examName = np.defaultName; S.examDate = np.defaultDate;
-          S.chapters = {}; S.lastStudied = {}; S.studiedOn = {}; S.pinned = {}; S.tasks = []; S.planGeneratedAt = null; S.onboardingDone = false;
+          S.chapters = {}; S.lastStudied = {}; S.studiedOn = {}; S.pinned = {}; S.weakest = {}; S.tasks = []; S.planGeneratedAt = null; S.onboardingDone = false;
           ui.ob = null; ui.openSub = {}; ui.chSubject = np.subjects[0]; ui.route = 'today'; location.hash = '#/today'; persist(); render(); if (Auth && Auth.currentUser()) pushNow();
         }); break;
       }
