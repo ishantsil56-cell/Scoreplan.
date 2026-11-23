@@ -13,10 +13,10 @@
    Until this is filled in, ScorePlan works exactly as before; the Account section in
    Settings says sign-in isn't set up yet. */
 window.SPFirebaseConfig = {
-  apiKey: 'PASTE-YOUR-API-KEY',
-  authDomain: 'PASTE-YOUR-PROJECT-ID.firebaseapp.com',
-  projectId: 'PASTE-YOUR-PROJECT-ID',
-  storageBucket: 'PASTE-YOUR-PROJECT-ID.appspot.com',
-  messagingSenderId: 'PASTE-YOUR-SENDER-ID',
-  appId: 'PASTE-YOUR-APP-ID'
+  apiKey: 'AIzaSyCze08xJ5Y-x_rdlTOEUnPpWp2fpuJOlGY',
+  authDomain: 'scoreplan-a080f.firebaseapp.com',
+  projectId: 'scoreplan-a080f',
+  storageBucket: 'scoreplan-a080f.firebasestorage.app',
+  messagingSenderId: '911392594744',
+  appId: '1:911392594744:web:680a8e3eb2f58bd1877fcd'
 };
