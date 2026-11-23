@@ -1,14 +1,16 @@
 /* ScorePlan — Firebase Auth (Google) + Firestore sync. Sign-in is the first screen;
    a skip link keeps the app usable offline without it, and the Account section in
    Settings always offers sign-in later.
-   Uses the Firebase v10 compat SDK (classic scripts, no build step). Sign-in uses the redirect
-   flow, which works inside an installed PWA where popups are blocked.
+   Uses the Firebase v10 compat SDK (classic scripts, no build step). Sign-in tries a
+   popup first (the result comes back to this window) and falls back to the redirect
+   flow where popups are blocked.
    Sync model: one Firestore doc per user (users/{uid}) holding { state, updatedAt }.
    Last write wins by updatedAt; the watermark in localStorage (scoreplan-sync-v1) records
    the newest timestamp this device has seen, so it can tell whether the cloud copy is newer. */
 (function (root) {
   'use strict';
   var WM_KEY = 'scoreplan-sync-v1';
+  var PENDING_KEY = 'scoreplan-signin-pending';
   var auth = null, db = null, user = null, pushTimer = null, pendingPush = null, justRedirected = false;
   var onUserChange = null, onSyncStatus = null;
 
@@ -29,6 +31,7 @@
     if (!err) return 'Sign-in failed.';
     if (err.code === 'auth/operation-not-allowed') return 'Google sign-in is not enabled for this project. In the Firebase console: Authentication → Sign-in method → Google → Enable.';
     if (err.code === 'auth/unauthorized-domain') return 'This site is not an authorized domain. In the Firebase console: Authentication → Settings → Authorized domains → add ishantsil56-cell.github.io.';
+    if (err.code === 'auth/popup-blocked') return 'The sign-in popup was blocked. Allow popups for this site and try again.';
     if (err.code === 'auth/network-request-failed') return 'Could not reach Google. Check your connection and try again.';
     if (err.code === 'auth/web-storage-unsupported') return 'This browser blocks the storage sign-in needs. Try opening ScorePlan in Chrome.';
     if (err.code === 'auth/cancelled-popup-request' || err.code === 'auth/popup-closed-by-user') return 'Sign-in was cancelled. Try again.';
@@ -45,24 +48,51 @@
     } catch (e) { status('error', 'Firebase setup failed.'); return; }
     auth.onAuthStateChanged(function (u) {
       user = u;
+      if (u) clearPendingRedirect();
       if (!u && pushTimer) { clearTimeout(pushTimer); pushTimer = null; pendingPush = null; }
       if (onUserChange) onUserChange(u);
     });
     auth.getRedirectResult().then(function (result) {
-      if (result && result.user) justRedirected = true;
+      if (result && result.user) { justRedirected = true; clearPendingRedirect(); }
+      else if (hasPendingRedirect() && !auth.currentUser) {
+        /* The redirect never came back to a window that could use it: it returned to
+           a different tab, whose sessionStorage has no record of the sign-in, so the
+           SDK silently resolves with no user. Say so plainly instead of silence. */
+        clearPendingRedirect();
+        status('error', 'The sign-in did not come back to this window — it finished in another tab. Open ScorePlan in Chrome and sign in there, then reopen the app.');
+      }
     }).catch(function (err) {
       if (!err) return;
       status('error', friendlyError(err));
     });
   }
 
+  /* Popup first: the result comes back to this window, so it can't get lost the way
+     a redirect can when the return lands in another tab. Popups don't work
+     everywhere (some installed PWAs and mobile browsers block them) — then fall back
+     to the redirect flow. A user-cancelled popup is not a fallback case. */
   function signIn() {
     if (!auth) return;
     var provider = new root.firebase.auth.GoogleAuthProvider();
-    auth.signInWithRedirect(provider).catch(function (err) {
-      if (err) status('error', friendlyError(err));
+    auth.signInWithPopup(provider).then(function () {
+      /* onAuthStateChanged reports the user; nothing more needed here. */
+    }).catch(function (err) {
+      if (!err) return;
+      if (err.code === 'auth/popup-blocked' || err.code === 'auth/operation-not-supported-in-this-environment' || err.code === 'auth/web-storage-unsupported') {
+        setPendingRedirect();
+        auth.signInWithRedirect(provider).catch(function (err2) {
+          clearPendingRedirect();
+          if (err2) status('error', friendlyError(err2));
+        });
+      } else {
+        status('error', friendlyError(err));
+      }
     });
   }
+  /* localStorage (shared across tabs) records that a redirect sign-in was started. */
+  function setPendingRedirect() { try { localStorage.setItem(PENDING_KEY, '1'); } catch (e) {} }
+  function clearPendingRedirect() { try { localStorage.removeItem(PENDING_KEY); } catch (e) {} }
+  function hasPendingRedirect() { try { return localStorage.getItem(PENDING_KEY) === '1'; } catch (e) { return false; } }
   function signOut() { if (auth) auth.signOut().catch(function () {}); }
 
   /* Re-reads the current user and reports a change. The Google redirect can finish in
