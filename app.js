@@ -2,6 +2,7 @@
 (function () {
   'use strict';
   var Data = window.SPData, Dates = window.SPDates, Planner = window.SPPlanner, Store = window.SPStorage;
+  var Auth = window.SPAuth || null;
   var CH = {};
   Data.ORDER.forEach(function (k) { Data.PACKS[k].chapters.forEach(function (c) { CH[c.id] = c; }); });
   function PK() { return Data.getPack(S.examType); }
@@ -20,7 +21,7 @@
   function esc(s) { return String(s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
   function fmtMin(m) { return m >= 60 ? Math.floor(m / 60) + ' h' + (m % 60 ? ' ' + (m % 60) + ' min' : '') : m + ' min'; }
   function fmtHrs(m) { var h = m / 60; return (h % 1 ? h.toFixed(1) : h) + ' hrs'; }
-  function persist() { Store.save(S); }
+  function persist() { Store.save(S); if (Auth) Auth.pushSoon(function () { return S; }); }
   function stOf(id) { return S.chapters[id] || 'not-started'; }
   function todayStr() { return Dates.today(); }
   function daysLeft() { return Dates.diff(S.examDate, todayStr()); }
@@ -319,6 +320,67 @@
     return h;
   }
 
+  /* ---------- account & sync (optional Google sign-in) ---------- */
+  var syncState = { status: 'off', at: null };
+  function syncStatusText() {
+    if (syncState.status === 'syncing') return 'Syncing…';
+    if (syncState.status === 'error') return 'Sync failed — will retry on your next change.';
+    if (syncState.status === 'ok') return 'Synced' + (syncState.at ? ' · ' + Dates.fmtTime(syncState.at) : '');
+    return 'Not synced yet';
+  }
+  function setSyncStatus(status, at) {
+    syncState.status = status; if (at) syncState.at = at;
+    var el = $('#sync-status'); if (el) el.textContent = syncStatusText();
+  }
+  function pushNow() {
+    if (!Auth || !Auth.currentUser()) return Promise.resolve();
+    setSyncStatus('syncing', '');
+    return Auth.push(S).then(function (ts) { Auth.setWatermark(ts); setSyncStatus('ok', ts); }).catch(function () { setSyncStatus('error', ''); });
+  }
+  function applyCloud(state, ts) {
+    S = state; Store.save(S); Auth.setWatermark(ts); setSyncStatus('ok', ts);
+    ui.ob = null; render(); toast('Synced from your Google account.');
+  }
+  /* Decides what to do with the cloud copy on sign-in / sync: fresh device takes the cloud
+     copy, a newer cloud copy wins, otherwise the local plan is pushed up. First sync on a
+     device that already has a plan asks which one to keep, so nothing is ever lost silently. */
+  function reconcile(cloud) {
+    if (!Auth || !Auth.currentUser()) return Promise.resolve();
+    if (!cloud || !cloud.state) return pushNow();
+    var valid = Store.validate(cloud.state);
+    if (!valid) return pushNow();
+    var wm = Auth.getWatermark();
+    if (!S.onboardingDone) { applyCloud(valid, cloud.updatedAt); return Promise.resolve(); }
+    if (wm && cloud.updatedAt <= wm) return pushNow();
+    if (!wm) {
+      return ask({ title: 'Two plans found', message: 'This device has a plan, and your Google account has one from another device. Which one should we keep?', ok: 'Use the one from Google', cancel: 'Keep this device\'s' }).then(function (useCloud) {
+        if (useCloud) applyCloud(valid, cloud.updatedAt); else return pushNow();
+      });
+    }
+    applyCloud(valid, cloud.updatedAt);
+    return Promise.resolve();
+  }
+  function reconcileOnSignIn() {
+    setSyncStatus('syncing', '');
+    Auth.pull().then(function (cloud) { reconcile(cloud); }).catch(function () { setSyncStatus('error', ''); });
+  }
+  function manualSync() {
+    if (!Auth || !Auth.currentUser()) { toast('Sign in first to sync.'); return; }
+    setSyncStatus('syncing', '');
+    Auth.pull().then(function (cloud) { return reconcile(cloud); }).then(function () { toast('Synced.'); }).catch(function () { setSyncStatus('error', ''); toast('Sync failed — check your connection.'); });
+  }
+  function accountCard() {
+    var h = '<div class="card stack"><h2 class="h2">Account</h2>';
+    if (!Auth || !Auth.isConfigured()) return h + '<p class="muted">Google sign-in isn\'t set up yet. It needs a free Firebase project — the setup steps are in firebase-config.js in the repo.</p></div>';
+    if (!Auth.isAvailable()) return h + '<p class="muted">Can\'t reach Google right now (you may be offline). Your plan still works — sign-in will be here when you\'re back online.</p></div>';
+    var u = Auth.currentUser();
+    if (!u) return h + '<p class="muted">Sign in to back up your plan to your Google account and sync it across devices. Optional — everything works without it.</p><button class="btn block" data-act="auth-signin">Sign in with Google</button></div>';
+    var avatar = u.photoURL ? '<img src="' + esc(u.photoURL) + '" alt="" style="width:32px;height:32px;border-radius:50%;object-fit:cover">' : '';
+    return h + '<div class="row">' + avatar + '<div class="grow"><b>' + esc(u.displayName || u.email || 'Signed in') + '</b><div class="muted">' + esc(u.email || '') + '</div></div></div>' +
+      '<div class="muted" id="sync-status">' + esc(syncStatusText()) + '</div>' +
+      '<div class="row"><button class="btn secondary grow" data-act="auth-sync">Sync now</button><button class="btn secondary grow" data-act="auth-signout">Sign out</button></div></div>';
+  }
+
   /* ---------- Settings ---------- */
   function viewSettings() {
     return '<div class="stack"><div class="row"><button class="link" data-act="go" data-r="today">← Back</button></div><h1 class="h1">Settings</h1>' +
@@ -326,7 +388,7 @@
       '<div><label class="muted" for="s-date">Exam date</label><input id="s-date" type="date" class="input" data-chg="setdate" value="' + esc(S.examDate) + '"></div></div>' +
       '<div class="card stack"><h2 class="h2">Daily study hours</h2><div class="hrs">' + [2, 3, 4, 5, 6].map(function (x) { return '<button data-act="sethrs" data-v="' + x * 60 + '" class="' + (S.dailyMinutes === x * 60 ? 'active' : '') + '">' + x + '</button>'; }).join('') + '</div>' +
       '<input type="range" min="1" max="10" step="0.5" value="' + S.dailyMinutes / 60 + '" data-inp="setslider" data-chg="setslider" aria-label="Daily study hours"><b id="s-hrs-label">' + fmtHrs(S.dailyMinutes) + ' per day</b></div>' +
-      '<div class="card stack"><h2 class="h2">Your data</h2><p class="muted">Everything lives on this device. No account, no server.</p>' +
+      accountCard() + '<div class="card stack"><h2 class="h2">Your data</h2><p class="muted">Everything lives on this device. Sign in above to also back it up to your Google account and sync it across devices.</p>' +
       '<button class="btn secondary block" data-act="export">Export my data</button><button class="btn secondary block" data-act="import">Import data</button>' +
       '<input type="file" id="import-file" accept="application/json,.json" hidden><button class="btn danger block" data-act="reset">Reset everything</button></div>' +
       '<div class="card stack"><h2 class="h2">About</h2><p>ScorePlan builds your ' + esc(PK().label) + ' revision plan from real paper weightage, and works fully offline.</p><p class="muted">' + footnote() + '</p><p class="muted">v1.0</p></div></div>';
@@ -389,20 +451,23 @@
           if (!y) return;
           var np = Data.PACKS[t]; S.examType = t; S.examName = np.defaultName; S.examDate = np.defaultDate;
           S.chapters = {}; S.lastStudied = {}; S.studiedOn = {}; S.pinned = {}; S.tasks = []; S.planGeneratedAt = null; S.onboardingDone = false;
-          ui.ob = null; ui.openSub = {}; ui.chSubject = np.subjects[0]; ui.route = 'today'; location.hash = '#/today'; persist(); render();
+          ui.ob = null; ui.openSub = {}; ui.chSubject = np.subjects[0]; ui.route = 'today'; location.hash = '#/today'; persist(); render(); if (Auth && Auth.currentUser()) pushNow();
         }); break;
       }
       case 'sethrs': S.dailyMinutes = +el.dataset.v; persist(); afterHoursChange(); break;
+      case 'auth-signin': if (Auth) Auth.signIn(); break;
+      case 'auth-signout': if (Auth) Auth.signOut(); break;
+      case 'auth-sync': manualSync(); break;
       case 'export': {
         var blob = new Blob([Store.exportJSON(S)], { type: 'application/json' }), url = URL.createObjectURL(blob), l = document.createElement('a');
         l.href = url; l.download = 'scoreplan-backup.json'; document.body.appendChild(l); l.click(); l.remove(); setTimeout(function () { URL.revokeObjectURL(url); }, 500); toast('Backup downloaded.'); break;
       }
       case 'import': $('#import-file').click(); break;
       case 'reset':
-        ask({ title: 'Reset everything?', message: 'This deletes your plan, progress and settings from this device.', ok: 'Continue', danger: true }).then(function (y1) {
+        ask({ title: 'Reset everything?', message: 'This deletes your plan, progress and settings from this device' + (Auth && Auth.currentUser() ? ' and from your Google account' : '') + '.', ok: 'Continue', danger: true }).then(function (y1) {
           if (!y1) return;
           ask({ title: 'Are you absolutely sure?', message: 'This cannot be undone. Export a backup first if you might want your data back.', ok: 'Yes, reset everything', danger: true }).then(function (y2) {
-            if (!y2) return; Store.wipe(); S = Store.defaultState(); ui.ob = null; ui.notice = ''; location.hash = ''; ui.route = 'today'; render();
+            if (!y2) return; Store.wipe(); if (Auth) { Auth.clearWatermark(); Auth.deleteCloud(); } S = Store.defaultState(); ui.ob = null; ui.notice = ''; location.hash = ''; ui.route = 'today'; render();
           });
         }); break;
     }
@@ -455,6 +520,17 @@
   });
 
   /* ---------- boot ---------- */
+  if (Auth) Auth.init({
+    onUserChange: function (u) {
+      if (u) { setSyncStatus('idle', ''); reconcileOnSignIn(); }
+      else setSyncStatus('off', '');
+      render();
+    },
+    onSyncStatus: function (status, msg) {
+      setSyncStatus(status, msg);
+      if (status === 'error' && msg && msg.indexOf('Add this domain') === 0) toast(msg);
+    }
+  });
   var h0 = location.hash.replace('#/', ''); if (['today', 'plan', 'chapters', 'progress', 'settings'].indexOf(h0) > -1) ui.route = h0;
   render();
   if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) navigator.serviceWorker.register('sw.js').catch(function () {});

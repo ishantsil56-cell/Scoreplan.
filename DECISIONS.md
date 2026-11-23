@@ -22,6 +22,9 @@
 ## Tab fix (22 Nov 2026)
 19. **Tabs needed two taps because `go()` never rendered on the first one.** It set `ui.route` and changed the hash, leaving the redraw to the `hashchange` handler — but that handler skips rendering when the route already matches, which it always did by then. The second tap hit the `else render()` branch. Fix: `go()` now always calls `render()` itself; the `hashchange` handler still covers back/forward navigation.
 
+## Google sign-in (23 Nov 2026)
+20. **Google sign-in via Firebase Auth, free Spark plan.** Google sign-in is free up to 50,000 monthly active users, no card needed (only phone/SMS needs Blaze). Do NOT upgrade the project to Identity Platform — on Spark that caps sign-ins at 3,000 daily active users. Implementation: Firebase v10 compat SDK via CDN (classic scripts, matches the no-build style), redirect flow (popups are blocked in installed PWAs), one Firestore doc per user (`users/{uid}`, `{ state, updatedAt }`), last-write-wins by `updatedAt`, watermark in `scoreplan-sync-v1`. First sync on a device that already has a plan asks which plan to keep, so nothing is lost silently. Sign-in is optional — the app works fully offline without it, and if the SDK can't load (offline) the Account section says so instead of breaking. Setup is manual: create the project, enable the Google provider, add `ishantsil56-cell.github.io` as an authorized domain, create Firestore + paste `firestore.rules`, paste the web config into `firebase-config.js` (values are public client identifiers, not secrets).
+
 ## Exam packs (JEE Main / JEE Advanced / NEET UG)
 13. One pack per exam in `syllabus.js` (same shape: subjects, chapters with weightage + difficulty). Chapter IDs are prefixed per pack (`adv-…`, `neet-…`) so nothing collides.
 14. **NEET UG subjects:** Physics, Chemistry, Botany, Zoology (4 subjects, each weighted equally as 180/720 marks). Weightage-covered % averages across all four.

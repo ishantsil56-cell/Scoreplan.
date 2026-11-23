@@ -1,0 +1,10 @@
+rules_version = '2';
+// ScorePlan — each signed-in user can read/write ONLY their own document.
+// Paste into Firebase console → Firestore Database → Rules → Publish.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+  }
+}

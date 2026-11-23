@@ -1,5 +1,5 @@
 # ScorePlan
-Weightage-smart JEE Main revision planner. Offline PWA, no login, no backend.
+Weightage-smart JEE Main revision planner. Offline-first PWA; optional Google sign-in (Firebase, free plan) syncs your plan across devices.
 
 ## Run locally
     python3 -m http.server 8000     # then open http://localhost:8000
