@@ -186,6 +186,7 @@
       (authError ? '<div class="banner warn">' + esc(authError) + '</div>' : '') +
       '<button class="btn block" data-act="auth-signin">Sign in with Google</button>' +
       '<button class="link block" style="width:100%;text-align:center" data-act="auth-skip">Continue without signing in</button>' +
+      '<button class="link block" style="width:100%;text-align:center" data-act="auth-recheck">Already signed in? Tap here to check</button>' +
       '<p class="muted">Without signing in, your plan lives only in this browser. You can sign in later from Settings → Account.</p></div></div></div></div>';
   }
   function viewOnboarding() {
@@ -481,6 +482,7 @@
       }
       case 'sethrs': S.dailyMinutes = +el.dataset.v; persist(); afterHoursChange(); break;
       case 'auth-signin': authError = ''; if (Auth) Auth.signIn(); break;
+      case 'auth-recheck': if (Auth) Auth.refresh(); setTimeout(function () { if (!Auth || !Auth.currentUser()) location.reload(); }, 300); break;
       case 'auth-skip': try { localStorage.setItem(SKIP_KEY, '1'); } catch (e) {} render(); break;
       case 'auth-signout': if (Auth) Auth.signOut(); break;
       case 'auth-sync': manualSync(); break;
@@ -549,7 +551,7 @@
   if (Auth) Auth.init({
     onUserChange: function (u) {
       authResolved = true;
-      if (u) { authError = ''; setSyncStatus('idle', ''); reconcileOnSignIn(); }
+      if (u) { if (Auth.justSignedIn()) toast('Signed in as ' + (u.displayName || u.email || 'Google') + '.'); authError = ''; setSyncStatus('idle', ''); reconcileOnSignIn(); }
       else setSyncStatus('off', '');
       render();
     },
@@ -560,6 +562,10 @@
   });
   /* Safety net: if Firebase never reports the auth state, don't sit on Loading forever. */
   setTimeout(function () { if (!authResolved) { authResolved = true; render(); } }, 4000);
+  /* The Google redirect can finish in the browser while this window stays stale.
+     Re-check the auth state whenever the app comes back into view. */
+  document.addEventListener('visibilitychange', function () { if (!document.hidden && Auth) Auth.refresh(); });
+  window.addEventListener('focus', function () { if (Auth) Auth.refresh(); });
   var h0 = location.hash.replace('#/', ''); if (['today', 'plan', 'chapters', 'progress', 'settings'].indexOf(h0) > -1) ui.route = h0;
   render();
   if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) navigator.serviceWorker.register('sw.js').catch(function () {});

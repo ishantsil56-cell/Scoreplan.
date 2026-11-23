@@ -9,7 +9,7 @@
 (function (root) {
   'use strict';
   var WM_KEY = 'scoreplan-sync-v1';
-  var auth = null, db = null, user = null, pushTimer = null, pendingPush = null;
+  var auth = null, db = null, user = null, pushTimer = null, pendingPush = null, justRedirected = false;
   var onUserChange = null, onSyncStatus = null;
 
   function cfg() { return root.SPFirebaseConfig; }
@@ -48,7 +48,9 @@
       if (!u && pushTimer) { clearTimeout(pushTimer); pushTimer = null; pendingPush = null; }
       if (onUserChange) onUserChange(u);
     });
-    auth.getRedirectResult().catch(function (err) {
+    auth.getRedirectResult().then(function (result) {
+      if (result && result.user) justRedirected = true;
+    }).catch(function (err) {
       if (!err) return;
       status('error', friendlyError(err));
     });
@@ -62,6 +64,21 @@
     });
   }
   function signOut() { if (auth) auth.signOut().catch(function () {}); }
+
+  /* Re-reads the current user and reports a change. The Google redirect can finish in
+     the browser while this window stays stale; a focus/visibility re-check and the
+     gate's "check again" button pick that up. */
+  function refresh() {
+    if (!auth) return;
+    var u = auth.currentUser;
+    if ((u && u.uid) !== (user && user.uid)) {
+      user = u;
+      if (onUserChange) onUserChange(u);
+    }
+  }
+  /* True once, right after a redirect sign-in returns to this window — used for the
+     "Signed in as …" confirmation. */
+  function justSignedIn() { var j = justRedirected; justRedirected = false; return j; }
 
   function docRef() { return db.collection('users').doc(user.uid); }
   function pull() {
@@ -100,5 +117,5 @@
   function setWatermark(ts) { try { localStorage.setItem(WM_KEY, JSON.stringify({ updatedAt: ts })); } catch (e) {} }
   function clearWatermark() { try { localStorage.removeItem(WM_KEY); } catch (e) {} }
 
-  root.SPAuth = { init: init, isConfigured: isConfigured, isAvailable: isAvailable, currentUser: currentUser, signIn: signIn, signOut: signOut, pull: pull, push: push, pushSoon: pushSoon, deleteCloud: deleteCloud, getWatermark: getWatermark, setWatermark: setWatermark, clearWatermark: clearWatermark };
+  root.SPAuth = { init: init, isConfigured: isConfigured, isAvailable: isAvailable, currentUser: currentUser, signIn: signIn, signOut: signOut, refresh: refresh, justSignedIn: justSignedIn, pull: pull, push: push, pushSoon: pushSoon, deleteCloud: deleteCloud, getWatermark: getWatermark, setWatermark: setWatermark, clearWatermark: clearWatermark };
 })(window);
