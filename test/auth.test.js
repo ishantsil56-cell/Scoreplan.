@@ -61,6 +61,8 @@ async function run() {
     ok(e.calls.popup === 1, 'popup tried first');
     ok(e.calls.redirect === 0, 'no redirect after popup success');
     ok(e.localStorage.getItem('scoreplan-signin-pending') === null, 'no pending flag after popup success');
+    ok(e.SPAuth.getDebugLog().some(function (l) { return /trying popup/.test(l); }), 'debug log records popup attempt');
+    ok(e.SPAuth.getDebugLog().some(function (l) { return /popup OK/.test(l); }), 'debug log records popup success');
   }
   // 2. Popup blocked -> redirect fallback + pending flag.
   {
@@ -70,6 +72,7 @@ async function run() {
     await tick();
     ok(e.calls.redirect === 1, 'redirect fallback after popup-blocked');
     ok(e.localStorage.getItem('scoreplan-signin-pending') === '1', 'pending flag set on redirect');
+    ok(e.SPAuth.getDebugLog().some(function (l) { return /falling back to redirect/.test(l); }), 'debug log records redirect fallback');
   }
   // 3. Popup closed by user -> error shown, no redirect.
   {
@@ -90,6 +93,7 @@ async function run() {
     await tick();
     ok(statuses.some(function (x) { return x[0] === 'error' && /did not come back/.test(x[1]); }), 'lost redirect reports the lost-redirect error');
     ok(e.localStorage.getItem('scoreplan-signin-pending') === null, 'pending flag cleared after reporting');
+    ok(e.SPAuth.getDebugLog().some(function (l) { return /LOST REDIRECT/.test(l); }), 'debug log records lost redirect');
   }
   // 5. Redirect success: result with user -> justSignedIn true, flag cleared.
   {

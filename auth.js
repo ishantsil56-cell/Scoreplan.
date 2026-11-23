@@ -25,6 +25,17 @@
   function currentUser() { return user; }
   function status(s, msg) { if (onSyncStatus) onSyncStatus(s, msg || ''); }
 
+  /* On-screen diagnostics: a timestamped log of auth events. The sign-in screen shows
+     it, so a failed sign-in can be diagnosed from a screenshot instead of guesses. */
+  var debugLog = [];
+  function debug(msg) {
+    try {
+      debugLog.push(new Date().toISOString().slice(11, 19) + ' ' + msg);
+      if (debugLog.length > 40) debugLog.shift();
+    } catch (e) {}
+  }
+  function getDebugLog() { return debugLog.slice(); }
+
   /* Plain-language sign-in errors: the app shows these on the sign-in screen, so a
      failed sign-in is never a silent "Sign in" button again. */
   function friendlyError(err) {
@@ -40,28 +51,34 @@
 
   function init(callbacks) {
     onUserChange = callbacks.onUserChange; onSyncStatus = callbacks.onSyncStatus;
+    debug('init: SDK ' + (typeof root.firebase === 'undefined' ? 'NOT LOADED' : 'loaded') + ', configured=' + isConfigured());
     if (typeof root.firebase === 'undefined' || !isConfigured()) { status('off'); return; }
     try {
       root.firebase.initializeApp(cfg());
       auth = root.firebase.auth();
       db = root.firebase.firestore();
-    } catch (e) { status('error', 'Firebase setup failed.'); return; }
+      debug('firebase initialized');
+    } catch (e) { debug('init FAILED: ' + (e && e.message)); status('error', 'Firebase setup failed.'); return; }
     auth.onAuthStateChanged(function (u) {
       user = u;
+      debug('auth state: ' + (u ? 'signed in as ' + (u.email || u.uid) : 'signed out'));
       if (u) clearPendingRedirect();
       if (!u && pushTimer) { clearTimeout(pushTimer); pushTimer = null; pendingPush = null; }
       if (onUserChange) onUserChange(u);
     });
     auth.getRedirectResult().then(function (result) {
+      debug('redirect result: ' + (result && result.user ? 'user found' : 'none'));
       if (result && result.user) { justRedirected = true; clearPendingRedirect(); }
       else if (hasPendingRedirect() && !auth.currentUser) {
         /* The redirect never came back to a window that could use it: it returned to
            a different tab, whose sessionStorage has no record of the sign-in, so the
            SDK silently resolves with no user. Say so plainly instead of silence. */
+        debug('LOST REDIRECT detected');
         clearPendingRedirect();
         status('error', 'The sign-in did not come back to this window — it finished in another tab. Open ScorePlan in Chrome and sign in there, then reopen the app.');
       }
     }).catch(function (err) {
+      debug('redirect result ERROR: ' + (err && err.code));
       if (!err) return;
       status('error', friendlyError(err));
     });
@@ -72,15 +89,26 @@
      everywhere (some installed PWAs and mobile browsers block them) — then fall back
      to the redirect flow. A user-cancelled popup is not a fallback case. */
   function signIn() {
-    if (!auth) return;
-    var provider = new root.firebase.auth.GoogleAuthProvider();
+    if (!auth) { debug('signIn called but auth not ready'); status('error', 'Sign-in is not ready yet. Reload the app and try again.'); return; }
+    debug('signIn tapped — trying popup');
+    var provider;
+    try {
+      provider = new root.firebase.auth.GoogleAuthProvider();
+    } catch (e) {
+      debug('signIn CRASH creating provider: ' + (e && e.message));
+      status('error', friendlyError(e));
+      return;
+    }
     auth.signInWithPopup(provider).then(function () {
-      /* onAuthStateChanged reports the user; nothing more needed here. */
+      debug('popup OK');
     }).catch(function (err) {
       if (!err) return;
+      debug('popup FAILED: ' + err.code);
       if (err.code === 'auth/popup-blocked' || err.code === 'auth/operation-not-supported-in-this-environment' || err.code === 'auth/web-storage-unsupported') {
+        debug('falling back to redirect');
         setPendingRedirect();
         auth.signInWithRedirect(provider).catch(function (err2) {
+          debug('redirect FAILED: ' + (err2 && err2.code));
           clearPendingRedirect();
           if (err2) status('error', friendlyError(err2));
         });
@@ -103,6 +131,7 @@
     var u = auth.currentUser;
     if ((u && u.uid) !== (user && user.uid)) {
       user = u;
+      debug('refresh: user ' + (u ? 'found' : 'gone'));
       if (onUserChange) onUserChange(u);
     }
   }
@@ -147,5 +176,5 @@
   function setWatermark(ts) { try { localStorage.setItem(WM_KEY, JSON.stringify({ updatedAt: ts })); } catch (e) {} }
   function clearWatermark() { try { localStorage.removeItem(WM_KEY); } catch (e) {} }
 
-  root.SPAuth = { init: init, isConfigured: isConfigured, isAvailable: isAvailable, currentUser: currentUser, signIn: signIn, signOut: signOut, refresh: refresh, justSignedIn: justSignedIn, pull: pull, push: push, pushSoon: pushSoon, deleteCloud: deleteCloud, getWatermark: getWatermark, setWatermark: setWatermark, clearWatermark: clearWatermark };
+  root.SPAuth = { init: init, isConfigured: isConfigured, isAvailable: isAvailable, currentUser: currentUser, signIn: signIn, signOut: signOut, refresh: refresh, justSignedIn: justSignedIn, getDebugLog: getDebugLog, pull: pull, push: push, pushSoon: pushSoon, deleteCloud: deleteCloud, getWatermark: getWatermark, setWatermark: setWatermark, clearWatermark: clearWatermark };
 })(window);

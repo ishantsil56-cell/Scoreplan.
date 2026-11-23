@@ -11,6 +11,7 @@
 
   var S = Store.load() || Store.defaultState();
   var authResolved = false, authError = '';
+  var APP_VERSION = '2.7'; // keep in sync with CACHE in sw.js — shown on the sign-in screen so a screenshot tells us the running version
   var SKIP_KEY = 'scoreplan-skip-signin';
   function skippedSignIn() { try { return localStorage.getItem(SKIP_KEY) === '1'; } catch (e) { return false; } }
   /* Sign-in gate: the first screen for signed-out users when sign-in is available.
@@ -178,6 +179,17 @@
      account, not just this browser. A skip link keeps the app usable offline, and
      sign-in stays available in Settings → Account. Any sign-in error shows here, in
      plain words, instead of silently dropping back to a Sign in button. */
+  /* Diagnostics box on the sign-in screen: version, environment and the auth event
+     log, so a failed sign-in can be diagnosed from a screenshot. */
+  function debugBlock() {
+    var lines = ['App version: ' + APP_VERSION,
+      'Browser: ' + (navigator.userAgent || '').slice(0, 90),
+      'Firebase SDK: ' + (typeof window.firebase === 'undefined' ? 'NOT LOADED' : 'loaded'),
+      'Configured: ' + (Auth && Auth.isConfigured() ? 'yes' : 'no') + ' · Auth ready: ' + (Auth && Auth.isAvailable() ? 'yes' : 'no'),
+      'Signed in: ' + (Auth && Auth.currentUser() ? 'yes (' + (Auth.currentUser().email || '') + ')' : 'no')];
+    if (Auth && Auth.getDebugLog) lines = lines.concat(Auth.getDebugLog());
+    return '<div class="card stack"><h2 class="h2">Diagnostics</h2><p class="muted">If sign-in fails, screenshot this box and send it — it shows exactly what happened.</p><pre style="white-space:pre-wrap;word-break:break-word;font-size:12px;margin:0">' + esc(lines.join('\n')) + '</pre></div>';
+  }
   function viewSignIn() {
     return '<div class="main" style="padding-bottom:24px"><div class="page ob"><div class="brand">ScorePlan</div>' +
       '<p class="muted" style="margin-top:4px">Your revision plan, saved to your Google account and in sync on every device.</p>' +
@@ -187,7 +199,7 @@
       '<button class="btn block" data-act="auth-signin">Sign in with Google</button>' +
       '<button class="link block" style="width:100%;text-align:center" data-act="auth-skip">Continue without signing in</button>' +
       '<button class="link block" style="width:100%;text-align:center" data-act="auth-recheck">Already signed in? Tap here to check</button>' +
-      '<p class="muted">Without signing in, your plan lives only in this browser. You can sign in later from Settings → Account.</p></div></div></div></div>';
+      '<p class="muted">Without signing in, your plan lives only in this browser. You can sign in later from Settings → Account.</p></div>' + debugBlock() + '</div></div></div>';
   }
   function viewOnboarding() {
     if (!ui.ob) initOb();
@@ -415,7 +427,7 @@
       accountCard() + '<div class="card stack"><h2 class="h2">Your data</h2><p class="muted">' + (Auth && Auth.currentUser() ? 'Your plan lives in your Google account and syncs to every device. This browser keeps a copy so the app works offline.' : 'Your plan lives only in this browser until you sign in. Sign in above to save it to your Google account.') + '</p>' +
       '<button class="btn secondary block" data-act="export">Export my data</button><button class="btn secondary block" data-act="import">Import data</button>' +
       '<input type="file" id="import-file" accept="application/json,.json" hidden><button class="btn danger block" data-act="reset">Reset everything</button></div>' +
-      '<div class="card stack"><h2 class="h2">About</h2><p>ScorePlan builds your ' + esc(PK().label) + ' revision plan from real paper weightage, and works fully offline.</p><p class="muted">' + footnote() + '</p><p class="muted">v1.0</p></div></div>';
+      '<div class="card stack"><h2 class="h2">About</h2><p>ScorePlan builds your ' + esc(PK().label) + ' revision plan from real paper weightage, and works fully offline.</p><p class="muted">' + footnote() + '</p><p class="muted">v' + APP_VERSION + '</p></div></div>';
   }
 
   /* ---------- render ---------- */
@@ -481,7 +493,7 @@
         }); break;
       }
       case 'sethrs': S.dailyMinutes = +el.dataset.v; persist(); afterHoursChange(); break;
-      case 'auth-signin': authError = ''; if (Auth) Auth.signIn(); break;
+      case 'auth-signin': authError = ''; if (Auth) Auth.signIn(); render(); break;
       case 'auth-recheck': if (Auth) Auth.refresh(); setTimeout(function () { if (!Auth || !Auth.currentUser()) location.reload(); }, 300); break;
       case 'auth-skip': try { localStorage.setItem(SKIP_KEY, '1'); } catch (e) {} render(); break;
       case 'auth-signout': if (Auth) Auth.signOut(); break;
