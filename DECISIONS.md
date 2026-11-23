@@ -31,3 +31,5 @@
 15. **Switching exam wipes chapters + plan** (each exam has different chapters). Settings asks for confirmation and suggests exporting a backup first. Old backups without `examType` load as JEE Main.
 16. **Default exam dates are placeholders** (JEE Adv 23 May 2027, NEET 2 May 2027). Confirm against the official schedule and change them in onboarding/Settings.
 17. **Weightage for Advanced and NEET is my own approximate estimate**, not scraped from official data. Each subject is normalised to 100. Treat it as editable starter data.
+
+21. **Firebase config filled in 2026-11-23** (project `scoreplan-a080f`, Standard edition, Spark plan). The config was pasted by the user from the console — reading it off a screenshot misread two capital O's as zeros, so always take the config as pasted text, never from a screenshot. SW cache bumped to v2.3 in the same release so installed PWAs pick up the filled-in config (rule 18).
